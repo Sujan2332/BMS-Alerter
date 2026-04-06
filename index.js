@@ -1,5 +1,4 @@
 const puppeteer = require("puppeteer");
-const nodemailer = require("nodemailer");
 const axios = require("axios");
 
 // ===== CONFIG =====
