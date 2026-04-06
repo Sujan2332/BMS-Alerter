@@ -8,31 +8,7 @@ const CINEMA_URL = "https://in.bookmyshow.com/cinemas/bengaluru/sandhya-cinema-b
 const TELEGRAM_BOT_TOKEN = "8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY";
 const TELEGRAM_CHAT_ID = "1120111884";
 
-const EMAIL = "saisujan.s03@gmail.com";
-const EMAIL_PASS = "tnoo esmm rkdv qfeq";
-
 let alreadySent = false;
-
-// ===== EMAIL FUNCTION =====
-async function sendEmail(message) {
-    try {
-        const transporter = nodemailer.createTransport({
-            service: "gmail",
-            auth: { user: EMAIL, pass: EMAIL_PASS },
-        });
-
-        await transporter.sendMail({
-            from: EMAIL,
-            to: "sujanssai3@gmail.com",
-            subject: "🎬 Race Gurram Alert",
-            text: message,
-        });
-
-        console.log("📧 Email sent");
-    } catch (err) {
-        console.error("❌ Email failed:", err.message);
-    }
-}
 
 // ===== TELEGRAM FUNCTION =====
 async function sendTelegram(message) {
@@ -120,7 +96,6 @@ async function checkShow() {
 `;
 
             await sendTelegram(msg);
-            await sendEmail(msg);
             alreadySent = true;
         }
     } else {
