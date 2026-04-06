@@ -1,4 +1,4 @@
-const puppeteer = require("puppeteer");
+const { chromium } = require("@playwright/test");
 const axios = require("axios");
 
 // ===== CONFIG =====
@@ -62,14 +62,12 @@ function hasTargetShowtime(text) {
 async function checkShow() {
     console.log("🔍 Checking BookMyShow...");
 
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    });
 
-    await page.setUserAgent(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    );
-
-    await page.goto(CINEMA_URL, { waitUntil: "networkidle2" });
+    await page.goto(CINEMA_URL, { waitUntil: "networkidle" });
     await new Promise(resolve => setTimeout(resolve, 8000));
 
     const bodyText = await page.evaluate(() => document.body.innerText);
