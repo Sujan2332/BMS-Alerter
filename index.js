@@ -2,7 +2,7 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const chromium = require('chrome-aws-lambda');
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const axios = require('axios');
 
