@@ -1,6 +1,8 @@
 // ===== Imports =====
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
+const chromium = require('chrome-aws-lambda');
+const puppeteer = require('puppeteer-core');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const axios = require('axios');
 
@@ -8,7 +10,7 @@ puppeteer.use(StealthPlugin());
 
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3000;
 const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com'; // Render app URL
 
 // ===== Express setup =====
@@ -61,9 +63,6 @@ function hasTargetShowtime(text, ranges) {
     ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
   );
 }
-
-const chromium = require('chrome-aws-lambda');
-const puppeteer = require('puppeteer-core');
 
 async function checkShowForUser(chatId) {
   const session = sessions[chatId];
@@ -229,7 +228,7 @@ bot.on('message', async msg => {
 
 // ===== Keep Render app awake =====
 setInterval(() => {
-  axios.get(HOST_URL).catch(() => {});
+  axios.get(HOST_URL).catch(() => { });
 }, 5 * 60 * 1000);
 
 // ===== Start Express server =====
@@ -249,7 +248,7 @@ app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 // const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // // ===== User sessions =====
-// const sessions = {}; 
+// const sessions = {};
 
 // // ===== Helper Functions =====
 // async function sendTelegramMessage(chatId, message) {
