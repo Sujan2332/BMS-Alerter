@@ -7,7 +7,7 @@ const axios = require('axios');
 
 // Use the stealth plugin
 puppeteer.use(StealthPlugin());
-
+console.log("Chromium executable path:", executablePath);
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
@@ -77,6 +77,7 @@ async function checkShowForUser(chatId) {
   try {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
 
+    // Launch Puppeteer using chrome-aws-lambda
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
