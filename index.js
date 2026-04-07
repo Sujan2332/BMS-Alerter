@@ -32,16 +32,26 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 // ===== User sessions =====
 const sessions = {};
 
-async function logChromiumExecutablePath() {
+const puppeteer = require('puppeteer');
+
+async function launchBrowser() {
   try {
-    const executablePath = await chromium.executablePath;
-    console.log("Chromium executable path:", executablePath);
+    const executablePath = await puppeteer.executablePath();
+    console.log('Puppeteer executable path:', executablePath);
+
+    const browser = await puppeteer.launch({
+      headless: true,
+      executablePath,
+    });
+
+    console.log('Browser launched!');
+    await browser.close();
   } catch (error) {
-    console.error("Error fetching chromium executable path:", error);
+    console.error('Error launching browser:', error);
   }
 }
 
-logChromiumExecutablePath();
+launchBrowser();
 
 // ===== Helper Functions =====
 async function sendTelegramMessage(chatId, message, firstName = '') {
