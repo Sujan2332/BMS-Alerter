@@ -32,7 +32,6 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 // ===== User sessions =====
 const sessions = {};
 
-const puppeteer = require('puppeteer');
 
 async function launchBrowser() {
   try {
