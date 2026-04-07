@@ -7,7 +7,7 @@ const axios = require('axios');
 
 // Use the stealth plugin
 puppeteer.use(StealthPlugin());
-console.log("Chromium executable path:", executablePath);
+console.log("Chromium executable path:", chromium?.executablePath);
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
