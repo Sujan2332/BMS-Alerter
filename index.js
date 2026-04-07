@@ -1,15 +1,15 @@
-// ===== Imports =====
-const express = require('express');
-const TelegramBot = require('node-telegram-bot-api');
-const chromium = require('chrome-aws-lambda');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const chromium = require('chrome-aws-lambda');
+const express = require('express');
+const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
+// Use the stealth plugin
 puppeteer.use(StealthPlugin());
 
 // ===== CONFIG =====
-const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
 const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com'; // Render app URL
 
@@ -101,64 +101,6 @@ async function checkShowForUser(chatId) {
   }
 }
 
-// async function checkShowForUser(chatId) {
-//   const session = sessions[chatId];
-//   if (!session) return;
-
-//   const { movie, theatre, city, date, ranges, firstName } = session;
-//   const citySlug = city.toLowerCase().replace(/\s+/g, '-');
-//   const theatreSlug = theatre.toLowerCase().replace(/\s+/g, '-');
-//   const dateSlug = date.replace(/-/g, '');
-//   const url = `https://in.bookmyshow.com/cinemas/${citySlug}/${theatreSlug}/buytickets/SATB/${dateSlug}`;
-
-//   try {
-//     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
-//     const browser = await puppeteer.launch({
-//       headless: true,
-//       args: ['--no-sandbox', '--disable-setuid-sandbox']
-//     });
-//     const page = await browser.newPage();
-//     await page.setUserAgent(
-//       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-//     );
-//     await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9', 'dnt': '1' });
-//     await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
-//     await page.waitForTimeout(8000);
-
-//     const bodyText = await page.evaluate(() => document.body.innerText);
-//     await browser.close();
-
-//     const matchedTimes = hasTargetShowtime(bodyText, ranges);
-//     const movieFound = bodyText.toLowerCase().includes(movie.toLowerCase());
-//     const blocked = /blocked|cloudflare|security service/i.test(bodyText);
-
-//     if (blocked) {
-//       await sendTelegramMessage(chatId, `<b>🚫 Access Blocked</b>\nTry again later.`, firstName);
-//       return;
-//     }
-
-//     if (movieFound && matchedTimes.length > 0) {
-//       await sendTelegramMessage(chatId,
-//         `<b>🎉 SHOW FOUND!</b>\n<b>${movie}</b>\n🎬 ${matchedTimes.map(t => `<code>${t.text}</code>`).join(', ')}\n📍 ${theatre}, ${city}\n📅 ${date}\n<i>Book now on BookMyShow!</i>`,
-//         firstName
-//       );
-//       clearInterval(session.interval);
-//       delete sessions[chatId];
-//     } else if (movieFound && matchedTimes.length === 0) {
-//       const allTimes = parseShowTimes(bodyText);
-//       const rangeStr = ranges.map(r => r.from === r.to ? r.from : `${r.from}-${r.to}`).join(', ');
-//       await sendTelegramMessage(chatId,
-//         `<b>📽️ Movie Found!</b>\n${movie} is showing but not in your preferred range.\n⏰ <b>Your Range:</b> <code>${rangeStr}</code>\n✨ <b>Available Times:</b>\n${allTimes.map(t => `  • <code>${t.text}</code>`).join('\n')}\n<i>Checking again...</i>`,
-//         firstName
-//       );
-//     } else {
-//       console.log(`Movie not found: ${movie}`);
-//     }
-//   } catch (err) {
-//     console.error('Error checking show:', err);
-//   }
-// }
-
 // ===== Telegram Interaction =====
 bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
@@ -233,8 +175,6 @@ setInterval(() => {
 
 // ===== Start Express server =====
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
-
-
 
 // const TelegramBot = require('node-telegram-bot-api');
 // const puppeteer = require('puppeteer-extra');
