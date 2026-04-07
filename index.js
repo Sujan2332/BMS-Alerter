@@ -8,19 +8,20 @@ const axios = require('axios');
 puppeteer.use(StealthPlugin());
 
 // ===== CONFIG =====
-const BOT_TOKEN = '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
-const PORT = process.env.PORT || 3000;
-const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com'; // your deployed URL
-
-// ===== Telegram bot with webhook =====
-const bot = new TelegramBot(BOT_TOKEN, { webHook: { port: PORT } });
-bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
+const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const PORT = process.env.PORT || 3000; 
+const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com'; // Render app URL
 
 // ===== Express setup =====
 const app = express();
 app.use(express.json());
 
+// Keep alive route
 app.get('/', (req, res) => res.send('Bot is running!'));
+
+// ===== Telegram bot setup using Webhook =====
+const bot = new TelegramBot(BOT_TOKEN);
+bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
 
 // Telegram webhook endpoint
 app.post(`/bot${BOT_TOKEN}`, (req, res) => {
@@ -76,12 +77,7 @@ async function checkShowForUser(chatId) {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
     const browser = await puppeteer.launch({
       headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const page = await browser.newPage();
     await page.setUserAgent(
@@ -99,20 +95,24 @@ async function checkShowForUser(chatId) {
     const blocked = /blocked|cloudflare|security service/i.test(bodyText);
 
     if (blocked) {
-      await sendTelegramMessage(chatId, `<b>🚫 Access Blocked</b>\n\nBookMyShow temporarily blocked our request.\n<i>Try again later.</i>`, firstName);
+      await sendTelegramMessage(chatId, `<b>🚫 Access Blocked</b>\nTry again later.`, firstName);
       return;
     }
 
     if (movieFound && matchedTimes.length > 0) {
-      const successMsg = `<b>🎉 SHOW FOUND!</b>\n\n<b>${movie}</b>\n🎬 ${matchedTimes.map(t => `<code>${t.text}</code>`).join(', ')}\n📍 ${theatre}, ${city}\n📅 ${date}\n\n<i>Book now on BookMyShow!</i>`;
-      await sendTelegramMessage(chatId, successMsg, firstName);
+      await sendTelegramMessage(chatId,
+        `<b>🎉 SHOW FOUND!</b>\n<b>${movie}</b>\n🎬 ${matchedTimes.map(t => `<code>${t.text}</code>`).join(', ')}\n📍 ${theatre}, ${city}\n📅 ${date}\n<i>Book now on BookMyShow!</i>`,
+        firstName
+      );
       clearInterval(session.interval);
       delete sessions[chatId];
     } else if (movieFound && matchedTimes.length === 0) {
       const allTimes = parseShowTimes(bodyText);
       const rangeStr = ranges.map(r => r.from === r.to ? r.from : `${r.from}-${r.to}`).join(', ');
-      const availableMsg = `<b>📽️ Movie Found!</b>\n${movie} is showing but not in your preferred range.\n⏰ <b>Your Range:</b> <code>${rangeStr}</code>\n✨ <b>Available Times:</b>\n${allTimes.map(t => `  • <code>${t.text}</code>`).join('\n')}\n<i>Checking again...</i>`;
-      await sendTelegramMessage(chatId, availableMsg, firstName);
+      await sendTelegramMessage(chatId,
+        `<b>📽️ Movie Found!</b>\n${movie} is showing but not in your preferred range.\n⏰ <b>Your Range:</b> <code>${rangeStr}</code>\n✨ <b>Available Times:</b>\n${allTimes.map(t => `  • <code>${t.text}</code>`).join('\n')}\n<i>Checking again...</i>`,
+        firstName
+      );
     } else {
       console.log(`Movie not found: ${movie}`);
     }
@@ -125,9 +125,8 @@ async function checkShowForUser(chatId) {
 bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
   const firstName = msg.from.first_name || 'Friend';
-  sessions[chatId] = { step: 1, data: {}, firstName };
-  const welcomeMsg = `<b>🎬 Welcome to BookMyShow Alerts, ${firstName}!</b>\n\nI'll help you track movie showtimes.\n\n<b>Which movie would you like to track?</b>`;
-  sendTelegramMessage(chatId, welcomeMsg, firstName);
+  sessions[chatId] = { step: 1, firstName };
+  sendTelegramMessage(chatId, `<b>🎬 Welcome to BookMyShow Alerts, ${firstName}!</b>\nWhich movie would you like to track?`, firstName);
 });
 
 bot.on('message', async msg => {
@@ -141,7 +140,7 @@ bot.on('message', async msg => {
     case 1:
       session.movie = msg.text.trim();
       session.step = 2;
-      sendTelegramMessage(chatId, `✅ Movie Selected: <code>${session.movie}</code>\nWhich city?`, session.firstName);
+      sendTelegramMessage(chatId, `✅ Movie: <code>${session.movie}</code>\nWhich city?`, session.firstName);
       break;
     case 2:
       session.city = msg.text.trim();
@@ -170,7 +169,6 @@ bot.on('message', async msg => {
       const hours = parseInt(msg.text.trim());
       const intervalMs = 2 * 60 * 1000;
       const endTime = Date.now() + hours * 60 * 60 * 1000;
-
       sendTelegramMessage(chatId, `🎯 Tracking started for ${hours} hours!`, session.firstName);
 
       await checkShowForUser(chatId);
@@ -192,8 +190,8 @@ bot.on('message', async msg => {
 
 // ===== Keep Render app awake =====
 setInterval(() => {
-  axios.get(`https://bms-alerter.onrender.com`).catch(() => {});
-}, 5 * 60 * 1000); // every 5 min
+  axios.get(HOST_URL).catch(() => {});
+}, 5 * 60 * 1000);
 
-// ===== Start server =====
+// ===== Start Express server =====
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
