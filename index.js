@@ -1,12 +1,13 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-// const chromium = require('@sparticuz/chromium');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
 const PORT = process.env.PORT || 3000;
 const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com';
+const PROXY_URL = process.env.PROXY_URL || 'http://USERNAME:PASSWORD@proxy.webshare.io:80';
 
 // ===== Express setup =====
 const app = express();
@@ -49,18 +50,12 @@ function parseShowTimes(text) {
   return times;
 }
 
-function hasTargetShowtime(text, ranges) {
-  const showtimes = parseShowTimes(text);
-  return showtimes.filter(({ hour24 }) =>
-    ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
-  );
-}
-
 async function checkShowForUser(chatId) {
   const session = sessions[chatId];
   if (!session) return;
 
   const { movie, theatre, city, date, ranges, firstName } = session;
+  const proxyAgent = new HttpsProxyAgent(PROXY_URL);
 
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
@@ -74,37 +69,40 @@ async function checkShowForUser(chatId) {
     'x-subregion-code': city.toUpperCase(),
   };
 
+  const axiosConfig = { headers, httpsAgent: proxyAgent };
+
   try {
     console.log('Checking show:', { chatId, movie, theatre, city, date });
 
     // Step 1: Get all venues in the city
     const venueRes = await axios.get(
       `https://in.bookmyshow.com/pwa/api/de/venues?regionCode=${city.toUpperCase()}&eventType=MT`,
-      { headers }
+      axiosConfig
     );
 
     const venues = venueRes.data?.BookMyShow?.arrVenue || [];
     console.log(`Found ${venues.length} venues`);
 
-    // Step 2: Find the matching venue by name
+    // Step 2: Find matching venue
     const matchedVenue = venues.find(v =>
       v.VenueName.toLowerCase().includes(theatre.toLowerCase()) ||
       v.VenueCode.toLowerCase().includes(theatre.toLowerCase().replace(/\s+/g, ''))
     );
 
     if (!matchedVenue) {
-      console.log(`Theatre "${theatre}" not found in venues list`);
+      console.log(`Theatre "${theatre}" not found`);
       console.log('Available venues:', venues.map(v => v.VenueName).join(', '));
       return;
     }
 
     console.log('Matched venue:', matchedVenue.VenueName, '| Code:', matchedVenue.VenueCode);
 
-    // Step 3: Get showtimes for this venue and date
+    // Step 3: Get showtimes
     const dateSlug = date.replace(/-/g, '');
     const showRes = await axios.get(
       `https://in.bookmyshow.com/api/movies-data/showtimes-by-event`,
       {
+        ...axiosConfig,
         params: {
           appCode: 'MOBAND2',
           appVersion: '14.3.4',
@@ -117,7 +115,6 @@ async function checkShowForUser(chatId) {
           venueCode: matchedVenue.VenueCode,
           dateCode: dateSlug,
         },
-        headers,
       }
     );
 
@@ -130,7 +127,7 @@ async function checkShowForUser(chatId) {
       return;
     }
 
-    // Step 4: Find the movie and its showtimes
+    // Step 4: Find movie and showtimes
     let allMatchedTimes = [];
     let movieFound = false;
 
@@ -143,7 +140,6 @@ async function checkShowForUser(chatId) {
           const childEvents = event.ChildEvents || [];
           for (const child of childEvents) {
             const showTime = child.EventShowTime || '';
-            // Parse time like "01:00 PM"
             const times = parseShowTimes(showTime);
             const matched = times.filter(({ hour24 }) =>
               ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
@@ -250,7 +246,7 @@ bot.on('message', async msg => {
 
 // ===== Keep Render app awake =====
 setInterval(() => {
-  axios.get(HOST_URL).catch(() => {});
+  axios.get(HOST_URL).catch(() => { });
 }, 5 * 60 * 1000);
 
 // ===== Start Express server =====
