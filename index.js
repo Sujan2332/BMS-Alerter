@@ -128,7 +128,7 @@ async function checkShowForUser(chatId) {
     });
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-    await page.waitForTimeout(8000);
+    await new Promise(resolve => setTimeout(resolve, 8000));
 
     const bodyText = await page.evaluate(() => document.body.innerText);
     await browser.close();
