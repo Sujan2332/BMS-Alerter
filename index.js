@@ -6,7 +6,6 @@ const axios = require('axios');
 const vanillaPuppeteer = require('puppeteer');
 
 puppeteer.use(StealthPlugin());
-const vanillaPuppeteer = require('puppeteer');
 console.log('Chrome executable path on startup:', vanillaPuppeteer.executablePath());
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
