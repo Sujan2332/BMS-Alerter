@@ -1,34 +1,22 @@
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const chromium = require('@sparticuz/chromium');
-
-// At the top of your file after imports
-const fs = require('fs');
-['/usr/bin/chromium-browser', '/usr/bin/chromium', '/usr/bin/google-chrome'].forEach(p => {
-  console.log(`${p} exists:`, fs.existsSync(p));
-});
-puppeteer.use(StealthPlugin());
 
 // ===== CONFIG =====
-const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
+const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
 const PORT = process.env.PORT || 3000;
-const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com'; // Render app URL
+const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com';
 
 // ===== Express setup =====
 const app = express();
 app.use(express.json());
 
-// Keep alive route
 app.get('/', (req, res) => res.send('Bot is running!'));
 
-// ===== Telegram bot setup using Webhook =====
+// ===== Telegram bot setup =====
 const bot = new TelegramBot(BOT_TOKEN);
 bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
 
-// Telegram webhook endpoint
 app.post(`/bot${BOT_TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
@@ -36,26 +24,6 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 
 // ===== User sessions =====
 const sessions = {};
-
-
-// async function launchBrowser() {
-//   try {
-//     const executablePath = await puppeteer.executablePath();
-//     console.log('Puppeteer executable path:', executablePath);
-
-//     const browser = await puppeteer.launch({
-//       headless: true,
-//       executablePath,
-//     });
-
-//     console.log('Browser launched!');
-//     await browser.close();
-//   } catch (error) {
-//     console.error('Error launching browser:', error);
-//   }
-// }
-
-// launchBrowser();
 
 // ===== Helper Functions =====
 async function sendTelegramMessage(chatId, message, firstName = '') {
@@ -72,7 +40,6 @@ function parseShowTimes(text) {
   let match;
   while ((match = regex.exec(text)) !== null) {
     let hour = parseInt(match[1], 10);
-    const minute = parseInt(match[2], 10);
     const period = match[3].toUpperCase();
     if (period === 'PM' && hour !== 12) hour += 12;
     if (period === 'AM' && hour === 12) hour = 0;
@@ -98,73 +65,31 @@ async function checkShowForUser(chatId) {
   const dateSlug = date.replace(/-/g, '');
   const url = `https://in.bookmyshow.com/cinemas/${citySlug}/${theatreSlug}/buytickets/SATB/${dateSlug}`;
 
+  let browser;
   try {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
 
-    const executablePath = await chromium.executablePath();
-    console.log('Chrome path:', executablePath);
+    const { connect } = require('puppeteer-real-browser');
 
-    const browser = await puppeteer.launch({
-      headless: chromium.headless,
-      executablePath,
+    const { browser: realBrowser, page } = await connect({
+      headless: 'auto',
       args: [
-        ...chromium.args,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-zygote',
         '--single-process',
-        '--window-size=1920,1080',
       ],
+      customConfig: {},
+      skipTarget: [],
+      fingerprint: true,
+      turnstile: true,
+      connectOption: {},
     });
 
-    const page = await browser.newPage();
+    browser = realBrowser;
 
-    // More realistic viewport
-    await page.setViewport({ width: 1920, height: 1080 });
-
-    // Rotate user agents to avoid detection
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    ];
-    const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
-    await page.setUserAgent(ua);
-
-    await page.setExtraHTTPHeaders({
-      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'accept-language': 'en-IN,en;q=0.9',
-      'accept-encoding': 'gzip, deflate, br',
-      'cache-control': 'no-cache',
-      'pragma': 'no-cache',
-      'sec-ch-ua': '"Google Chrome";v="123", "Not:A-Brand";v="8"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"Windows"',
-      'sec-fetch-dest': 'document',
-      'sec-fetch-mode': 'navigate',
-      'sec-fetch-site': 'none',
-      'sec-fetch-user': '?1',
-      'upgrade-insecure-requests': '1',
-      'dnt': '1',
-    });
-
-    // Override webdriver detection
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-      Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en'] });
-      window.chrome = { runtime: {} };
-    });
-
-    // First visit homepage to get cookies
-    await page.goto('https://in.bookmyshow.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Now go to the actual page
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 8000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
     const bodyText = await page.evaluate(() => document.body.innerText);
     await browser.close();
@@ -174,11 +99,10 @@ async function checkShowForUser(chatId) {
     const blocked = /blocked|cloudflare|security service|just a moment|enable javascript/i.test(bodyText);
 
     console.log('Scrape result:', { movieFound, blocked, matchedTimes });
-    console.log('Body preview:', bodyText.slice(0, 500));
+    console.log('Body preview:', bodyText.slice(0, 300));
 
     if (blocked) {
-      console.log('Still blocked, will retry next interval...');
-      // Don't notify user, just silently retry
+      console.log('Still blocked, retrying next interval...');
       return;
     }
 
@@ -195,11 +119,12 @@ async function checkShowForUser(chatId) {
     } else {
       const allTimes = parseShowTimes(bodyText);
       if (allTimes.length > 0) {
-        console.log(`Movie found but no match in range. Available: ${allTimes.map(t => t.text).join(', ')}`);
+        console.log(`No match in range. Available: ${allTimes.map(t => t.text).join(', ')}`);
       }
     }
   } catch (err) {
     console.error('Error checking show:', err.message);
+    if (browser) await browser.close().catch(() => {});
   }
 }
 
@@ -272,7 +197,7 @@ bot.on('message', async msg => {
 
 // ===== Keep Render app awake =====
 setInterval(() => {
-  axios.get(HOST_URL).catch(() => { });
+  axios.get(HOST_URL).catch(() => {});
 }, 5 * 60 * 1000);
 
 // ===== Start Express server =====
