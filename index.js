@@ -3,9 +3,11 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const vanillaPuppeteer = require('puppeteer');
 
 puppeteer.use(StealthPlugin());
-
+const vanillaPuppeteer = require('puppeteer');
+console.log('Chrome executable path on startup:', vanillaPuppeteer.executablePath());
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
@@ -96,7 +98,8 @@ async function checkShowForUser(chatId) {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
 
     // Dynamically resolve executable path — no hardcoding
-    const executablePath = puppeteer.executablePath();
+    const executablePath = vanillaPuppeteer.executablePath();
+    console.log('Chrome path:', executablePath);
 
     const browser = await puppeteer.launch({
       headless: 'new',
