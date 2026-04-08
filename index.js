@@ -1,12 +1,11 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const chromium = require('chrome-aws-lambda');
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
-// Use the stealth plugin
 puppeteer.use(StealthPlugin());
+
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
@@ -33,24 +32,24 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 const sessions = {};
 
 
-async function launchBrowser() {
-  try {
-    const executablePath = await puppeteer.executablePath();
-    console.log('Puppeteer executable path:', executablePath);
+// async function launchBrowser() {
+//   try {
+//     const executablePath = await puppeteer.executablePath();
+//     console.log('Puppeteer executable path:', executablePath);
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      executablePath,
-    });
+//     const browser = await puppeteer.launch({
+//       headless: true,
+//       executablePath,
+//     });
 
-    console.log('Browser launched!');
-    await browser.close();
-  } catch (error) {
-    console.error('Error launching browser:', error);
-  }
-}
+//     console.log('Browser launched!');
+//     await browser.close();
+//   } catch (error) {
+//     console.error('Error launching browser:', error);
+//   }
+// }
 
-launchBrowser();
+// launchBrowser();
 
 // ===== Helper Functions =====
 async function sendTelegramMessage(chatId, message, firstName = '') {
@@ -96,28 +95,67 @@ async function checkShowForUser(chatId) {
   try {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
 
-    // Launch Puppeteer using chrome-aws-lambda
+    // Dynamically resolve executable path — no hardcoding
+    const executablePath = puppeteer.executablePath();
+
     const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath || '/opt/render/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
-      headless: chromium.headless,
+      headless: 'new',
+      executablePath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',       // Important on Render (low /dev/shm)
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',              // Helps on low-memory servers
+      ],
     });
 
     const page = await browser.newPage();
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
-    await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9', 'dnt': '1' });
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+    await page.setExtraHTTPHeaders({
+      'accept-language': 'en-US,en;q=0.9',
+      'dnt': '1',
+    });
+
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
     await page.waitForTimeout(8000);
 
     const bodyText = await page.evaluate(() => document.body.innerText);
     await browser.close();
 
-    // rest of your logic...
+    const matchedTimes = hasTargetShowtime(bodyText, ranges);
+    const movieFound = bodyText.toLowerCase().includes(movie.toLowerCase());
+    const blocked = /blocked|cloudflare|security service/i.test(bodyText);
+
+    console.log('Scrape result:', { movieFound, blocked, matchedTimes });
+
+    if (blocked) {
+      await sendTelegramMessage(chatId, '⚠️ BookMyShow blocked the request. Retrying later...', firstName);
+      return;
+    }
+
+    if (movieFound && matchedTimes.length > 0) {
+      await sendTelegramMessage(
+        chatId,
+        `🎬 <b>${movie}</b> is now available!\nShowtimes: ${matchedTimes.map(t => t.text).join(', ')}\n🔗 <a href="${url}">Book Now</a>`,
+        firstName
+      );
+      clearInterval(session.interval);
+      delete sessions[chatId];
+    } else if (!movieFound) {
+      console.log(`Movie not listed yet: ${movie}`);
+    } else {
+      const allTimes = parseShowTimes(bodyText);
+      if (allTimes.length > 0) {
+        console.log(`Movie found but no match in range. Available: ${allTimes.map(t => t.text).join(', ')}`);
+      }
+    }
   } catch (err) {
-    console.error('Error checking show:', err);
+    console.error('Error checking show:', err.message);
   }
 }
 
