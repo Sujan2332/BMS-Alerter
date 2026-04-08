@@ -3,7 +3,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const vanillaPuppeteer = require('puppeteer');
+const chromium = require('@sparticuz/chromium');
 
 // At the top of your file after imports
 const fs = require('fs');
@@ -101,39 +101,18 @@ async function checkShowForUser(chatId) {
   try {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
 
-    // Dynamically resolve executable path — no hardcoding
-    function getChromiumPath() {
-      const possiblePaths = [
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        '/usr/bin/google-chrome',
-        '/usr/bin/google-chrome-stable',
-      ];
-
-      const fs = require('fs');
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          console.log('Found Chromium at:', p);
-          return p;
-        }
-      }
-
-      // fallback to puppeteer's own
-      const vanillaPuppeteer = require('puppeteer');
-      const fallback = vanillaPuppeteer.executablePath();
-      console.log('Falling back to puppeteer path:', fallback);
-      return fallback;
-    }
+    const executablePath = await chromium.executablePath();
+    console.log('Chrome path:', executablePath);
 
     const browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath: getChromiumPath(),
+      headless: chromium.headless,
+      executablePath,
       args: [
+        ...chromium.args,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--no-first-run',
         '--no-zygote',
         '--single-process',
       ],
