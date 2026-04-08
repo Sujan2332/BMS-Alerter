@@ -1,7 +1,7 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const chromium = require('@sparticuz/chromium');
+// const chromium = require('@sparticuz/chromium');
 
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
@@ -61,78 +61,39 @@ async function checkShowForUser(chatId) {
   if (!session) return;
 
   const { movie, theatre, city, date, ranges, firstName } = session;
-  const citySlug = city.toLowerCase().replace(/\s+/g, '-');
-  const theatreSlug = theatre.toLowerCase().replace(/\s+/g, '-');
-  const dateSlug = date.replace(/-/g, '');
-  const url = `https://in.bookmyshow.com/cinemas/${citySlug}/${theatreSlug}/buytickets/SATB/${dateSlug}`;
 
-  let browser;
   try {
-    console.log('Checking show:', { chatId, movie, theatre, city, date, url });
-
-    // Get chromium path and set CHROME_PATH for puppeteer-real-browser
-    const executablePath = await chromium.executablePath();
-    process.env.CHROME_PATH = executablePath;
-    console.log('Chrome path:', executablePath);
-
-    const { connect } = require('puppeteer-real-browser');
-
-    const { browser: realBrowser, page } = await connect({
-      headless: 'auto',
-      args: [
-        ...chromium.args,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--single-process',
-      ],
-      customConfig: {
-        chromePath: executablePath,
+    const response = await axios.get(
+      `https://in.bookmyshow.com/api/movies-data/showtimes-by-event`, {
+      params: {
+        appCode: 'MOBAND2',
+        appVersion: '14.3.4',
+        language: 'en',
+        eventCode: 'SATB',
+        regionCode: city.toUpperCase(),
+        subRegion: city.toUpperCase(),
+        bmsId: '1.21.0',
+        token: '67x1xa33b4x422b361ba',
+        lat: '12.9716',
+        lon: '77.5946',
       },
-      fingerprint: true,
-      turnstile: true,
-      connectOption: {},
+      headers: {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
+        'x-region-code': city.toUpperCase(),
+        'x-subregion-code': city.toUpperCase(),
+      }
     });
 
-    browser = realBrowser;
-
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 10000));
-
-    const bodyText = await page.evaluate(() => document.body.innerText);
-    await browser.close();
-
-    const matchedTimes = hasTargetShowtime(bodyText, ranges);
+    const bodyText = JSON.stringify(response.data);
     const movieFound = bodyText.toLowerCase().includes(movie.toLowerCase());
-    const blocked = /blocked|cloudflare|security service|just a moment|enable javascript/i.test(bodyText);
 
-    console.log('Scrape result:', { movieFound, blocked, matchedTimes });
-    console.log('Body preview:', bodyText.slice(0, 300));
+    console.log('API result:', { movieFound });
+    console.log('Preview:', bodyText.slice(0, 500));
 
-    if (blocked) {
-      console.log('Still blocked, retrying next interval...');
-      return;
-    }
+    // rest of your matching logic...
 
-    if (movieFound && matchedTimes.length > 0) {
-      await sendTelegramMessage(
-        chatId,
-        `🎬 <b>${movie}</b> is now available!\nShowtimes: ${matchedTimes.map(t => t.text).join(', ')}\n🔗 <a href="${url}">Book Now</a>`,
-        firstName
-      );
-      clearInterval(session.interval);
-      delete sessions[chatId];
-    } else if (!movieFound) {
-      console.log(`Movie not listed yet: ${movie}`);
-    } else {
-      const allTimes = parseShowTimes(bodyText);
-      if (allTimes.length > 0) {
-        console.log(`No match in range. Available: ${allTimes.map(t => t.text).join(', ')}`);
-      }
-    }
   } catch (err) {
     console.error('Error checking show:', err.message);
-    if (browser) await browser.close().catch(() => {});
   }
 }
 
