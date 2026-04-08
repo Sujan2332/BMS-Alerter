@@ -62,38 +62,122 @@ async function checkShowForUser(chatId) {
 
   const { movie, theatre, city, date, ranges, firstName } = session;
 
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-IN,en;q=0.9',
+    'Referer': 'https://in.bookmyshow.com/',
+    'Origin': 'https://in.bookmyshow.com',
+    'x-bms-id': 'in.bms.web',
+    'x-region-code': city.toUpperCase(),
+    'x-region-slug': city.toLowerCase(),
+    'x-subregion-code': city.toUpperCase(),
+  };
+
   try {
-    const response = await axios.get(
-      `https://in.bookmyshow.com/api/movies-data/showtimes-by-event`, {
-      params: {
-        appCode: 'MOBAND2',
-        appVersion: '14.3.4',
-        language: 'en',
-        eventCode: 'SATB',
-        regionCode: city.toUpperCase(),
-        subRegion: city.toUpperCase(),
-        bmsId: '1.21.0',
-        token: '67x1xa33b4x422b361ba',
-        lat: '12.9716',
-        lon: '77.5946',
-      },
-      headers: {
-        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
-        'x-region-code': city.toUpperCase(),
-        'x-subregion-code': city.toUpperCase(),
+    console.log('Checking show:', { chatId, movie, theatre, city, date });
+
+    // Step 1: Get all venues in the city
+    const venueRes = await axios.get(
+      `https://in.bookmyshow.com/pwa/api/de/venues?regionCode=${city.toUpperCase()}&eventType=MT`,
+      { headers }
+    );
+
+    const venues = venueRes.data?.BookMyShow?.arrVenue || [];
+    console.log(`Found ${venues.length} venues`);
+
+    // Step 2: Find the matching venue by name
+    const matchedVenue = venues.find(v =>
+      v.VenueName.toLowerCase().includes(theatre.toLowerCase()) ||
+      v.VenueCode.toLowerCase().includes(theatre.toLowerCase().replace(/\s+/g, ''))
+    );
+
+    if (!matchedVenue) {
+      console.log(`Theatre "${theatre}" not found in venues list`);
+      console.log('Available venues:', venues.map(v => v.VenueName).join(', '));
+      return;
+    }
+
+    console.log('Matched venue:', matchedVenue.VenueName, '| Code:', matchedVenue.VenueCode);
+
+    // Step 3: Get showtimes for this venue and date
+    const dateSlug = date.replace(/-/g, '');
+    const showRes = await axios.get(
+      `https://in.bookmyshow.com/api/movies-data/showtimes-by-event`,
+      {
+        params: {
+          appCode: 'MOBAND2',
+          appVersion: '14.3.4',
+          language: 'en',
+          eventCode: 'SATB',
+          regionCode: city.toUpperCase(),
+          subRegion: city.toUpperCase(),
+          bmsId: '1.21.0',
+          token: '67x1xa33b4x422b361ba',
+          venueCode: matchedVenue.VenueCode,
+          dateCode: dateSlug,
+        },
+        headers,
       }
-    });
+    );
 
-    const bodyText = JSON.stringify(response.data);
-    const movieFound = bodyText.toLowerCase().includes(movie.toLowerCase());
+    const showDetails = showRes.data?.ShowDetails || [];
+    console.log(`ShowDetails count: ${showDetails.length}`);
+    console.log('Raw ShowDetails:', JSON.stringify(showDetails).slice(0, 800));
 
-    console.log('API result:', { movieFound });
-    console.log('Preview:', bodyText.slice(0, 500));
+    if (showDetails.length === 0) {
+      console.log('No shows found yet for this venue/date');
+      return;
+    }
 
-    // rest of your matching logic...
+    // Step 4: Find the movie and its showtimes
+    let allMatchedTimes = [];
+    let movieFound = false;
+
+    for (const show of showDetails) {
+      const events = show.Event || [];
+      for (const event of events) {
+        const title = event.EventTitle || '';
+        if (title.toLowerCase().includes(movie.toLowerCase())) {
+          movieFound = true;
+          const childEvents = event.ChildEvents || [];
+          for (const child of childEvents) {
+            const showTime = child.EventShowTime || '';
+            // Parse time like "01:00 PM"
+            const times = parseShowTimes(showTime);
+            const matched = times.filter(({ hour24 }) =>
+              ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
+            );
+            allMatchedTimes.push(...matched);
+            console.log(`Found showtime: ${showTime} for ${title}`);
+          }
+        }
+      }
+    }
+
+    console.log('Scrape result:', { movieFound, matchedTimes: allMatchedTimes });
+
+    if (movieFound && allMatchedTimes.length > 0) {
+      const bookUrl = `https://in.bookmyshow.com/cinemas/${city.toLowerCase()}/${theatre.toLowerCase()}/buytickets/SATB/${dateSlug}`;
+      await sendTelegramMessage(
+        chatId,
+        `🎬 <b>${movie}</b> is now available!\nShowtimes: ${allMatchedTimes.map(t => t.text).join(', ')}\n🔗 <a href="${bookUrl}">Book Now</a>`,
+        firstName
+      );
+      clearInterval(session.interval);
+      delete sessions[chatId];
+    } else if (!movieFound) {
+      console.log(`Movie "${movie}" not listed yet`);
+    } else {
+      console.log(`Movie found but no showtime in range ${JSON.stringify(ranges)}`);
+    }
 
   } catch (err) {
     console.error('Error checking show:', err.message);
+    if (err.response) {
+      console.error('API response status:', err.response.status);
+      console.error('API response data:', JSON.stringify(err.response.data).slice(0, 300));
+    }
   }
 }
 
