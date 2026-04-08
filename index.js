@@ -115,19 +115,55 @@ async function checkShowForUser(chatId) {
         '--disable-gpu',
         '--no-zygote',
         '--single-process',
+        '--window-size=1920,1080',
       ],
     });
 
     const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
+
+    // More realistic viewport
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // Rotate user agents to avoid detection
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    ];
+    const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
+    await page.setUserAgent(ua);
+
     await page.setExtraHTTPHeaders({
-      'accept-language': 'en-US,en;q=0.9',
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'accept-language': 'en-IN,en;q=0.9',
+      'accept-encoding': 'gzip, deflate, br',
+      'cache-control': 'no-cache',
+      'pragma': 'no-cache',
+      'sec-ch-ua': '"Google Chrome";v="123", "Not:A-Brand";v="8"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'sec-fetch-user': '?1',
+      'upgrade-insecure-requests': '1',
       'dnt': '1',
     });
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    // Override webdriver detection
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en'] });
+      window.chrome = { runtime: {} };
+    });
+
+    // First visit homepage to get cookies
+    await page.goto('https://in.bookmyshow.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Now go to the actual page
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await new Promise(resolve => setTimeout(resolve, 8000));
 
     const bodyText = await page.evaluate(() => document.body.innerText);
@@ -135,12 +171,14 @@ async function checkShowForUser(chatId) {
 
     const matchedTimes = hasTargetShowtime(bodyText, ranges);
     const movieFound = bodyText.toLowerCase().includes(movie.toLowerCase());
-    const blocked = /blocked|cloudflare|security service/i.test(bodyText);
+    const blocked = /blocked|cloudflare|security service|just a moment|enable javascript/i.test(bodyText);
 
     console.log('Scrape result:', { movieFound, blocked, matchedTimes });
+    console.log('Body preview:', bodyText.slice(0, 500));
 
     if (blocked) {
-      await sendTelegramMessage(chatId, '⚠️ BookMyShow blocked the request. Retrying later...', firstName);
+      console.log('Still blocked, will retry next interval...');
+      // Don't notify user, just silently retry
       return;
     }
 
