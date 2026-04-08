@@ -1,6 +1,7 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const chromium = require('@sparticuz/chromium');
 
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
@@ -69,18 +70,25 @@ async function checkShowForUser(chatId) {
   try {
     console.log('Checking show:', { chatId, movie, theatre, city, date, url });
 
+    // Get chromium path and set CHROME_PATH for puppeteer-real-browser
+    const executablePath = await chromium.executablePath();
+    process.env.CHROME_PATH = executablePath;
+    console.log('Chrome path:', executablePath);
+
     const { connect } = require('puppeteer-real-browser');
 
     const { browser: realBrowser, page } = await connect({
       headless: 'auto',
       args: [
+        ...chromium.args,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--single-process',
       ],
-      customConfig: {},
-      skipTarget: [],
+      customConfig: {
+        chromePath: executablePath,
+      },
       fingerprint: true,
       turnstile: true,
       connectOption: {},
