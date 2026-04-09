@@ -106,9 +106,9 @@ async function checkShowForUser(chatId) {
     );
 
     const data = response.data;
-    console.log('Response keys:', Object.keys(data));
+    console.log('Response data:', data);
     console.log('Raw:', JSON.stringify(data).slice(0, 1000));
-
+    console.log(data)
     const showDetails = data?.ShowDetails || [];
 
     if (showDetails.length === 0) {
