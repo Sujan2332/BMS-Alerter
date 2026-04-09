@@ -76,32 +76,31 @@ async function checkShowForUser(chatId) {
   const venueCode = VENUE_MAP[theatreKey] || theatre.toUpperCase();
   const regionCode = REGION_MAP[cityKey] || city.toUpperCase();
 
-  const headers = {
-    'accept': 'application/json, text/plain, */*',
-    'accept-language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
-    'referer': 'https://in.bookmyshow.com/',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    'x-region-code': regionCode,
-    'x-region-slug': cityKey,
-  };
-
   try {
-    console.log('Checking show:', { movie, venueCode, regionCode, dateSlug });
+    console.log('Checking show:', { movie, theatre, venueCode, regionCode, dateSlug });
 
     const response = await axios.get(
-      'https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue',
+      'https://in.bookmyshow.com/api/movies-data/showtimes-by-event',
       {
         params: {
-          dateCode: dateSlug,
-          venueCode: venueCode,
+          appCode: 'MOBAND2',
+          appVersion: '14.3.4',
+          language: 'en',
+          eventCode: venueCode,
           regionCode: regionCode,
-          memberId: '',
-          bmsId: '1.691911006.1775546869766',
-          appCode: 'WEBV2',
-          token: '26x3aab5x746514b3b7b',
-          lsId: '',
+          subRegion: regionCode,
+          bmsId: '1.21.0',
+          token: '67x1xa33b4x422b361ba',
+          lat: '12.9716',
+          lon: '77.5946',
+          dateCode: dateSlug,
         },
-        headers,
+        headers: {
+          'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
+          'x-region-code': regionCode,
+          'x-subregion-code': regionCode,
+          'Accept': 'application/json',
+        },
         timeout: 15000,
       }
     );
@@ -110,7 +109,7 @@ async function checkShowForUser(chatId) {
     console.log('Response keys:', Object.keys(data));
     console.log('Raw:', JSON.stringify(data).slice(0, 1000));
 
-    const showDetails = data?.ShowDetails || data?.showDetails || [];
+    const showDetails = data?.ShowDetails || [];
 
     if (showDetails.length === 0) {
       console.log('No shows found yet for this venue/date');
@@ -122,28 +121,45 @@ async function checkShowForUser(chatId) {
     let allAvailableTimes = [];
 
     for (const show of showDetails) {
-      const events = show?.Event || show?.events || [];
+      // Match theatre
+      const venueName = (show?.VenueName || '').toLowerCase();
+      const showVenueCode = (show?.VenueCode || '').toLowerCase();
+
+      const theatreMatches =
+        venueName.includes(theatreKey) ||
+        showVenueCode.includes(venueCode.toLowerCase()) ||
+        theatreKey.includes(venueName.split(' ')[0]);
+
+      if (!theatreMatches) continue;
+
+      console.log('Matched theatre:', show.VenueName);
+
+      const events = show?.Event || [];
       for (const event of events) {
-        const title = event?.EventTitle || event?.eventTitle || '';
+        const title = event?.EventTitle || '';
         if (!title.toLowerCase().includes(movie.toLowerCase())) continue;
 
         movieFound = true;
-        const childEvents = event?.ChildEvents || event?.childEvents || [];
+        console.log('Matched movie:', title);
 
+        const childEvents = event?.ChildEvents || [];
         for (const child of childEvents) {
-          const showTime = child?.EventShowTime || child?.showTime || child?.ShowTime || '';
+          const showTime = child?.EventShowTime || child?.ShowTime || '';
+          if (!showTime) continue;
+
           const times = parseShowTimes(showTime);
           allAvailableTimes.push(...times);
+
           const matched = times.filter(({ hour24 }) =>
             ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
           );
           allMatchedTimes.push(...matched);
-          console.log(`Showtime: ${showTime} — in range: ${matched.length > 0}`);
+          console.log(`  Showtime: ${showTime} — in range: ${matched.length > 0}`);
         }
       }
     }
 
-    console.log('Result:', {
+    console.log('Final result:', {
       movieFound,
       available: allAvailableTimes.map(t => t.text),
       matched: allMatchedTimes.map(t => t.text),
@@ -153,22 +169,27 @@ async function checkShowForUser(chatId) {
       const bookUrl = `https://in.bookmyshow.com/cinemas/${cityKey.replace(/\s+/g, '-')}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
       await sendTelegramMessage(
         chatId,
-        `🎬 <b>${movie}</b> is now available!\nShowtimes: ${allMatchedTimes.map(t => t.text).join(', ')}\n🔗 <a href="${bookUrl}">Book Now</a>`,
+        `🎬 <b>${movie}</b> is now available at <b>${theatre}</b>!\n` +
+        `📅 Date: ${date}\n` +
+        `🕐 Showtimes: ${allMatchedTimes.map(t => t.text).join(', ')}\n` +
+        `🔗 <a href="${bookUrl}">Book Now</a>`,
         firstName
       );
       clearInterval(session.interval);
       delete sessions[chatId];
+    } else if (movieFound && allAvailableTimes.length > 0) {
+      console.log(`Movie found but not in your time range. Available: ${allAvailableTimes.map(t => t.text).join(', ')}`);
     } else if (movieFound) {
-      console.log(`Movie found but not in range. Available: ${allAvailableTimes.map(t => t.text).join(', ')}`);
+      console.log(`Movie found but no showtimes listed yet`);
     } else {
-      console.log(`Movie "${movie}" not listed yet`);
+      console.log(`Movie "${movie}" not listed yet at "${theatre}"`);
     }
 
   } catch (err) {
     console.error('Error checking show:', err.message);
     if (err.response) {
-      console.error('API response status:', err.response.status);
-      console.error('API response data:', JSON.stringify(err.response.data).slice(0, 300));
+      console.error('Status:', err.response.status);
+      console.error('Data:', JSON.stringify(err.response.data).slice(0, 300));
     }
   }
 }
@@ -242,7 +263,7 @@ bot.on('message', async msg => {
 
 // ===== Keep Render app awake =====
 setInterval(() => {
-  axios.get(HOST_URL).catch(() => {});
+  axios.get(HOST_URL).catch(() => { });
 }, 5 * 60 * 1000);
 
 // ===== Start Express server =====
