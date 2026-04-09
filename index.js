@@ -1,24 +1,38 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // ===== CONFIG =====
-const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
+const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
 const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com';
-const PROXY_URL = process.env.PROXY_URL || 'http://USERNAME:PASSWORD@proxy.webshare.io:80';
+
+// ===== Venue & Region mapping =====
+const VENUE_MAP = {
+  'sandhya': 'SATB',
+  'pvr forum mall': 'PVRF',
+  'inox garuda': 'GNML',
+  'cinepolis': 'CPFM',
+};
+
+const REGION_MAP = {
+  'bengaluru': 'BANG',
+  'bangalore': 'BANG',
+  'mumbai': 'MUMB',
+  'delhi': 'NDLS',
+  'hyderabad': 'HYD',
+  'chennai': 'CHEN',
+  'pune': 'PUNE',
+};
 
 // ===== Express setup =====
 const app = express();
 app.use(express.json());
-
 app.get('/', (req, res) => res.send('Bot is running!'));
 
 // ===== Telegram bot setup =====
 const bot = new TelegramBot(BOT_TOKEN);
 bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
-
 app.post(`/bot${BOT_TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
@@ -32,7 +46,7 @@ async function sendTelegramMessage(chatId, message, firstName = '') {
   try {
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
   } catch (err) {
-    console.error('Telegram send error:', err);
+    console.error('Telegram send error:', err.message);
   }
 }
 
@@ -55,82 +69,88 @@ async function checkShowForUser(chatId) {
   if (!session) return;
 
   const { movie, theatre, city, date, ranges, firstName } = session;
-  const proxyAgent = new HttpsProxyAgent(PROXY_URL);
   const dateSlug = date.replace(/-/g, '');
 
-  // Try direct quickbook API — this is what BMS website uses
-  const url = `https://in.bookmyshow.com/api/movies-data/showtimes-by-event?appCode=MOBAND2&appVersion=14.3.4&language=en&eventCode=SATB&regionCode=${city.toUpperCase()}&subRegion=${city.toUpperCase()}&bmsId=1.21.0&token=67x1xa33b4x422b361ba&dateCode=${dateSlug}`;
+  const theatreKey = theatre.toLowerCase().trim();
+  const cityKey = city.toLowerCase().trim();
+  const venueCode = VENUE_MAP[theatreKey] || theatre.toUpperCase();
+  const regionCode = REGION_MAP[cityKey] || city.toUpperCase();
 
   const headers = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Language': 'en-IN,en;q=0.9',
-    'Referer': 'https://in.bookmyshow.com/',
-    'x-bms-id': 'in.bms.web',
-    'x-region-code': city.toUpperCase(),
-    'x-region-slug': city.toLowerCase(),
-    'x-subregion-code': city.toUpperCase(),
-    'x-bms-sessionid': Math.random().toString(36).substring(2),
+    'accept': 'application/json, text/plain, */*',
+    'accept-language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+    'referer': 'https://in.bookmyshow.com/',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'x-region-code': regionCode,
+    'x-region-slug': cityKey,
   };
 
   try {
-    console.log('Checking show:', { chatId, movie, theatre, city, date });
+    console.log('Checking show:', { movie, venueCode, regionCode, dateSlug });
 
-    const response = await axios.get(url, {
-      headers,
-      httpsAgent: proxyAgent,
-      timeout: 15000,
-    });
+    const response = await axios.get(
+      'https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue',
+      {
+        params: {
+          dateCode: dateSlug,
+          venueCode: venueCode,
+          regionCode: regionCode,
+          memberId: '',
+          bmsId: '1.691911006.1775546869766',
+          appCode: 'WEBV2',
+          token: '26x3aab5x746514b3b7b',
+          lsId: '',
+        },
+        headers,
+        timeout: 15000,
+      }
+    );
 
-    console.log('Raw response:', JSON.stringify(response.data).slice(0, 1000));
+    const data = response.data;
+    console.log('Response keys:', Object.keys(data));
+    console.log('Raw:', JSON.stringify(data).slice(0, 1000));
 
-    const showDetails = response.data?.ShowDetails || [];
+    const showDetails = data?.ShowDetails || data?.showDetails || [];
 
     if (showDetails.length === 0) {
-      console.log('No shows found yet');
+      console.log('No shows found yet for this venue/date');
       return;
     }
 
-    let allMatchedTimes = [];
     let movieFound = false;
+    let allMatchedTimes = [];
     let allAvailableTimes = [];
 
     for (const show of showDetails) {
-      // Check venue name matches
-      const venueName = (show.VenueName || '').toLowerCase();
-      const venueCode = (show.VenueCode || '').toLowerCase();
-      const theatreLower = theatre.toLowerCase();
-
-      if (!venueName.includes(theatreLower) && !venueCode.includes(theatreLower)) {
-        continue; // skip other theatres
-      }
-
-      console.log('Matched theatre:', show.VenueName);
-
-      const events = show.Event || [];
+      const events = show?.Event || show?.events || [];
       for (const event of events) {
-        const title = event.EventTitle || '';
-        if (title.toLowerCase().includes(movie.toLowerCase())) {
-          movieFound = true;
-          const childEvents = event.ChildEvents || [];
-          for (const child of childEvents) {
-            const showTime = child.EventShowTime || child.ShowTime || '';
-            console.log(`Showtime found: ${showTime}`);
-            const times = parseShowTimes(showTime);
-            allAvailableTimes.push(...times);
-            const matched = times.filter(({ hour24 }) =>
-              ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
-            );
-            allMatchedTimes.push(...matched);
-          }
+        const title = event?.EventTitle || event?.eventTitle || '';
+        if (!title.toLowerCase().includes(movie.toLowerCase())) continue;
+
+        movieFound = true;
+        const childEvents = event?.ChildEvents || event?.childEvents || [];
+
+        for (const child of childEvents) {
+          const showTime = child?.EventShowTime || child?.showTime || child?.ShowTime || '';
+          const times = parseShowTimes(showTime);
+          allAvailableTimes.push(...times);
+          const matched = times.filter(({ hour24 }) =>
+            ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
+          );
+          allMatchedTimes.push(...matched);
+          console.log(`Showtime: ${showTime} — in range: ${matched.length > 0}`);
         }
       }
     }
 
-    console.log('Result:', { movieFound, allAvailableTimes, allMatchedTimes });
+    console.log('Result:', {
+      movieFound,
+      available: allAvailableTimes.map(t => t.text),
+      matched: allMatchedTimes.map(t => t.text),
+    });
 
     if (movieFound && allMatchedTimes.length > 0) {
-      const bookUrl = `https://in.bookmyshow.com/cinemas/${city.toLowerCase()}/${theatre.toLowerCase()}/buytickets/SATB/${dateSlug}`;
+      const bookUrl = `https://in.bookmyshow.com/cinemas/${cityKey.replace(/\s+/g, '-')}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
       await sendTelegramMessage(
         chatId,
         `🎬 <b>${movie}</b> is now available!\nShowtimes: ${allMatchedTimes.map(t => t.text).join(', ')}\n🔗 <a href="${bookUrl}">Book Now</a>`,
@@ -138,10 +158,10 @@ async function checkShowForUser(chatId) {
       );
       clearInterval(session.interval);
       delete sessions[chatId];
-    } else if (movieFound && allAvailableTimes.length > 0) {
+    } else if (movieFound) {
       console.log(`Movie found but not in range. Available: ${allAvailableTimes.map(t => t.text).join(', ')}`);
-    } else if (!movieFound) {
-      console.log(`Movie "${movie}" not listed yet at "${theatre}"`);
+    } else {
+      console.log(`Movie "${movie}" not listed yet`);
     }
 
   } catch (err) {
@@ -222,7 +242,7 @@ bot.on('message', async msg => {
 
 // ===== Keep Render app awake =====
 setInterval(() => {
-  axios.get(HOST_URL).catch(() => { });
+  axios.get(HOST_URL).catch(() => {});
 }, 5 * 60 * 1000);
 
 // ===== Start Express server =====
