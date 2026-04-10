@@ -86,7 +86,7 @@ async function checkShowForUser(chatId) {
           appCode: 'MOBAND2',
           appVersion: '14.3.4',
           language: 'en',
-          eventCode: venueCode,
+          eventCode: 'SATB',        // ← always SATB, this is the event/cinema type
           regionCode: regionCode,
           subRegion: regionCode,
           bmsId: '1.21.0',
@@ -94,6 +94,7 @@ async function checkShowForUser(chatId) {
           lat: '12.9716',
           lon: '77.5946',
           dateCode: dateSlug,
+          venueCode: venueCode,     // ← add venue code as separate param
         },
         headers: {
           'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
