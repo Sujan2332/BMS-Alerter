@@ -75,45 +75,59 @@ async function checkShowForUser(chatId) {
   const cityKey = city.toLowerCase().trim();
   const venueCode = VENUE_MAP[theatreKey] || theatre.toUpperCase();
   const regionCode = REGION_MAP[cityKey] || city.toUpperCase();
+  const regionSlug = cityKey.replace(/\s+/g, '-');
 
   try {
     console.log('Checking show:', { movie, theatre, venueCode, regionCode, dateSlug });
 
     const response = await axios.get(
-      'https://in.bookmyshow.com/api/movies-data/showtimes-by-event',
+      'https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue',
       {
         params: {
-          appCode: 'MOBAND2',
-          appVersion: '14.3.4',
-          language: 'en',
-          eventCode: 'SATB',        // ← always SATB, this is the event/cinema type
-          regionCode: regionCode,
-          subRegion: regionCode,
-          bmsId: '1.21.0',
-          token: '67x1xa33b4x422b361ba',
-          lat: '12.9716',
-          lon: '77.5946',
           dateCode: dateSlug,
-          venueCode: venueCode,     // ← add venue code as separate param
+          venueCode: venueCode,
+          regionCode: regionCode,
+          memberId: '',
+          bmsId: '1.691911006.1775546869766',
+          appCode: 'WEBV2',
+          token: '26x3aab5x746514b3b7b',
+          lsId: '',
         },
         headers: {
-          'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
+          'accept': 'application/json, text/plain, */*',
+          'accept-language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+          'dnt': '1',
+          'referer': `https://in.bookmyshow.com/cinemas/${regionSlug}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`,
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+          'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"Windows"',
+          'x-advertiser-id': '1329806217061819502',
+          'x-app-code': 'WEB',
+          'x-bms-id': process.env.BMS_ID || '1.632209197.1775801434584',
+          'x-geohash': 'tdr',
+          'x-latitude': '12.971599',
+          'x-location-selection': 'manual',
+          'x-longitude': '77.594563',
+          'x-platform': 'WEB',
+          'x-platform-code': 'WEB',
           'x-region-code': regionCode,
-          'x-subregion-code': regionCode,
-          'Accept': 'application/json',
+          'x-region-slug': regionSlug,
+          'x-segments': '',
         },
         timeout: 15000,
       }
     );
 
     const data = response.data;
-    console.log('Response data:', data);
-    console.log('Raw:', JSON.stringify(data).slice(0, 1000));
-    console.log(data)
-    const showDetails = data?.ShowDetails || [];
+    console.log('Response keys:', Object.keys(data));
+    console.log('Raw:', JSON.stringify(data).slice(0, 2000));
+
+    const showDetails = data?.ShowDetails || data?.showDetails || [];
 
     if (showDetails.length === 0) {
-      console.log('No shows found yet for this venue/date');
+      console.log('ShowDetails empty');
+      console.log('Full response:', JSON.stringify(data, null, 2));
       return;
     }
 
@@ -122,30 +136,17 @@ async function checkShowForUser(chatId) {
     let allAvailableTimes = [];
 
     for (const show of showDetails) {
-      // Match theatre
-      const venueName = (show?.VenueName || '').toLowerCase();
-      const showVenueCode = (show?.VenueCode || '').toLowerCase();
-
-      const theatreMatches =
-        venueName.includes(theatreKey) ||
-        showVenueCode.includes(venueCode.toLowerCase()) ||
-        theatreKey.includes(venueName.split(' ')[0]);
-
-      if (!theatreMatches) continue;
-
-      console.log('Matched theatre:', show.VenueName);
-
-      const events = show?.Event || [];
+      const events = show?.Event || show?.events || [];
       for (const event of events) {
-        const title = event?.EventTitle || '';
+        const title = event?.EventTitle || event?.eventTitle || '';
         if (!title.toLowerCase().includes(movie.toLowerCase())) continue;
 
         movieFound = true;
         console.log('Matched movie:', title);
 
-        const childEvents = event?.ChildEvents || [];
+        const childEvents = event?.ChildEvents || event?.childEvents || [];
         for (const child of childEvents) {
-          const showTime = child?.EventShowTime || child?.ShowTime || '';
+          const showTime = child?.EventShowTime || child?.showTime || child?.ShowTime || '';
           if (!showTime) continue;
 
           const times = parseShowTimes(showTime);
@@ -155,7 +156,7 @@ async function checkShowForUser(chatId) {
             ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
           );
           allMatchedTimes.push(...matched);
-          console.log(`  Showtime: ${showTime} — in range: ${matched.length > 0}`);
+          console.log(`Showtime: ${showTime} — in range: ${matched.length > 0}`);
         }
       }
     }
@@ -167,7 +168,7 @@ async function checkShowForUser(chatId) {
     });
 
     if (movieFound && allMatchedTimes.length > 0) {
-      const bookUrl = `https://in.bookmyshow.com/cinemas/${cityKey.replace(/\s+/g, '-')}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
+      const bookUrl = `https://in.bookmyshow.com/cinemas/${regionSlug}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
       await sendTelegramMessage(
         chatId,
         `🎬 <b>${movie}</b> is now available at <b>${theatre}</b>!\n` +
@@ -178,10 +179,8 @@ async function checkShowForUser(chatId) {
       );
       clearInterval(session.interval);
       delete sessions[chatId];
-    } else if (movieFound && allAvailableTimes.length > 0) {
-      console.log(`Movie found but not in your time range. Available: ${allAvailableTimes.map(t => t.text).join(', ')}`);
     } else if (movieFound) {
-      console.log(`Movie found but no showtimes listed yet`);
+      console.log(`Movie found but not in range. Available: ${allAvailableTimes.map(t => t.text).join(', ')}`);
     } else {
       console.log(`Movie "${movie}" not listed yet at "${theatre}"`);
     }
@@ -190,7 +189,7 @@ async function checkShowForUser(chatId) {
     console.error('Error checking show:', err.message);
     if (err.response) {
       console.error('Status:', err.response.status);
-      console.error('Data:', JSON.stringify(err.response.data).slice(0, 300));
+      console.error('Data:', JSON.stringify(err.response.data).slice(0, 500));
     }
   }
 }
