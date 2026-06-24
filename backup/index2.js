@@ -4,7 +4,6 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const path = require('path');
-const fs = require('fs');
 
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -17,58 +16,6 @@ puppeteer.use(AnonymizeUA());
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
 const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
-
-// ===== Find Chrome executable =====
-function findChrome() {
-  // 1. Explicit env var (set this in Render dashboard if needed)
-  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
-    return process.env.CHROME_PATH;
-  }
-
-  // 2. Where puppeteer@24 downloads Chrome on Render (PUPPETEER_CACHE_DIR)
-  const cacheDir = process.env.PUPPETEER_CACHE_DIR
-    || process.env.XDG_CACHE_HOME && path.join(process.env.XDG_CACHE_HOME, 'puppeteer')
-    || path.join(process.env.HOME || '/root', '.cache', 'puppeteer');
-
-  // Walk cache dir looking for chrome binary
-  const tryPaths = [
-    // Render's default puppeteer cache
-    path.join(cacheDir, 'chrome'),
-    path.join('/opt/render/.cache/puppeteer', 'chrome'),
-  ];
-
-  for (const base of tryPaths) {
-    if (!fs.existsSync(base)) continue;
-    // Glob for chrome binary: chrome/linux-XXX/chrome-linux64/chrome
-    const platforms = fs.readdirSync(base);
-    for (const platform of platforms) {
-      const candidates = [
-        path.join(base, platform, 'chrome-linux64', 'chrome'),
-        path.join(base, platform, 'chrome-linux64', 'chrome-linux64', 'chrome'),
-        path.join(base, platform, 'chrome', 'chrome'),
-      ];
-      for (const c of candidates) {
-        if (fs.existsSync(c)) return c;
-      }
-    }
-  }
-
-  // 3. System Chrome (if Render image has it)
-  const systemPaths = [
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-  ];
-  for (const p of systemPaths) {
-    if (fs.existsSync(p)) return p;
-  }
-
-  return null; // puppeteer will use its own default and likely error clearly
-}
-
-const CHROME_EXEC = findChrome();
-console.log('[CHROME]', CHROME_EXEC || 'Not found — using puppeteer default');
 
 // ===== Venue & Region mapping =====
 const VENUE_MAP = {
@@ -104,37 +51,21 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 // ===== User sessions =====
 const sessions = {};
 
-// ===== Shared browser instance =====
+// ===== Shared browser instance (reused across checks) =====
 let sharedBrowser = null;
 
 async function getBrowser() {
-  if (sharedBrowser) {
-    try {
-      // Check if still alive
-      await sharedBrowser.version();
-      return sharedBrowser;
-    } catch {
-      sharedBrowser = null;
-    }
-  }
-
-  const launchOpts = {
+  if (sharedBrowser && sharedBrowser.isConnected()) return sharedBrowser;
+  sharedBrowser = await puppeteer.launch({
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
       '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--single-process',
     ],
-    userDataDir: path.join(__dirname, 'profile'),
-  };
-
-  if (CHROME_EXEC) launchOpts.executablePath = CHROME_EXEC;
-
-  sharedBrowser = await puppeteer.launch(launchOpts);
-  console.log('[BROWSER] Launched Chrome');
+    userDataDir: path.join(__dirname, 'profile'), // reuse cookies/session
+  });
   return sharedBrowser;
 }
 
@@ -147,6 +78,7 @@ async function sendMsg(chatId, message) {
   }
 }
 
+// Parse "06:15 AM" or "9:30 PM" → 24h integer hour
 function parseShowTime(timeStr) {
   const match = timeStr && timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (!match) return null;
@@ -157,6 +89,7 @@ function parseShowTime(timeStr) {
   return hour;
 }
 
+// Headers that can't be forwarded (browser-controlled or would conflict)
 const BLOCKED_HEADERS = new Set([
   'host', 'content-length', 'connection',
   'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest',
@@ -169,31 +102,36 @@ function sanitizeHeaders(raw) {
   );
 }
 
-// ===== Fetch showtimes via browser (bypasses Cloudflare) =====
+// ===== Core: open BMS page in browser, intercept live API call, replay it =====
 async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
+  const pageUrl = `https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue?appCode=MOBAND2&appVersion=14.3.4&language=en&venueCode=${venueCode}&regionCode=${regionCode}&bmsId=1.21.0&token=67x1xa33b4x422b361ba&lat=12.9716&lon=77.5946&dateCode=${dateSlug}`;
+
+  // We load a real BMS cinema page so Cloudflare sees legitimate browser traffic,
+  // then intercept the showtimes API call the page makes, and capture its auth headers.
   const bmsPageUrl = `https://in.bookmyshow.com/cinemas/bengaluru/sandhya-cinema-bengaluru/buytickets/${venueCode}/${dateSlug}`;
-  const apiPattern = '/api/v3/mobile/showtimes/byvenue';
 
   const browser = await getBrowser();
   const page = await browser.newPage();
+
   let capturedSession = null;
 
   try {
     await page.setExtraHTTPHeaders({ 'accept-language': 'en-IN,en;q=0.9' });
     await page.setViewport({ width: 1366, height: 768 });
+
+    // Block heavy resources to speed up load
     await page.setRequestInterception(true);
-
     page.on('request', req => {
-      const url = req.url();
       const type = req.resourceType();
+      const url = req.url();
 
-      if (url.includes(apiPattern) && !capturedSession) {
+      // Intercept the showtimes API call to capture live headers & params
+      if (url.includes('/api/v3/mobile/showtimes/byvenue')) {
         const parsed = new URL(url);
         capturedSession = {
           params: Object.fromEntries(parsed.searchParams.entries()),
           headers: sanitizeHeaders(req.headers()),
         };
-        console.log('[BROWSER] API call intercepted');
       }
 
       if (['image', 'font', 'media'].includes(type)) {
@@ -203,25 +141,39 @@ async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
       }
     });
 
+    // Load the real BMS page — this triggers the showtimes API call
     console.log(`[BROWSER] Loading: ${bmsPageUrl}`);
     await page.goto(bmsPageUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    // Wait up to 12s for API interception
-    const deadline = Date.now() + 12000;
+    // Wait up to 10s for the API call to be intercepted
+    const deadline = Date.now() + 10000;
     while (!capturedSession && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 500));
     }
 
     if (!capturedSession) {
-      throw new Error('BMS API call not intercepted — page may not have loaded the showtimes component');
+      // Fallback: try the API URL directly in-browser (avoids CF for API subdomain)
+      console.log('[BROWSER] No session captured via page load, trying direct API fetch...');
+      const result = await page.evaluate(async (url) => {
+        try {
+          const res = await fetch(url, { credentials: 'include' });
+          const text = await res.text();
+          return { ok: res.ok, status: res.status, body: text };
+        } catch (e) {
+          return { ok: false, error: e.message };
+        }
+      }, pageUrl);
+
+      if (result.ok) {
+        return JSON.parse(result.body);
+      }
+
+      throw new Error('Could not capture BMS session or fetch data directly');
     }
 
-    // Override params with our specific date/venue (page may have loaded different ones)
-    capturedSession.params.venueCode = venueCode;
-    capturedSession.params.regionCode = regionCode;
-    capturedSession.params.dateCode = dateSlug;
-
-    const response = await axios.get('https://in.bookmyshow.com' + apiPattern, {
+    // Replay the captured API call with live headers (includes CF cookies/tokens)
+    console.log('[BROWSER] Session captured, replaying API call...');
+    const response = await axios.get('https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue', {
       params: capturedSession.params,
       headers: capturedSession.headers,
       timeout: 20000,
@@ -384,7 +336,7 @@ bot.on('message', async msg => {
         break;
       }
 
-      const intervalMs = 3 * 60 * 1000;
+      const intervalMs = 3 * 60 * 1000; // check every 3 minutes
       const endTime = Date.now() + hours * 60 * 60 * 1000;
       const rangeStr = session.ranges.map(r => `${r.from}:00–${r.to}:00`).join(', ');
 
@@ -398,6 +350,7 @@ bot.on('message', async msg => {
         `⏱️ Checking every 3 min for ${hours} hour${hours > 1 ? 's' : ''}.`
       );
 
+      // Immediate first check
       await checkShowForUser(chatId);
 
       if (sessions[chatId]) {
