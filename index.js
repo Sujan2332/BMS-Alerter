@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
@@ -5,7 +7,7 @@ const axios = require('axios');
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
-const HOST_URL = process.env.HOST_URL || 'https://bms-alerter.onrender.com';
+const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
 
 // ===== Venue & Region mapping =====
 const VENUE_MAP = {
@@ -28,9 +30,9 @@ const REGION_MAP = {
 // ===== Express setup =====
 const app = express();
 app.use(express.json());
-app.get('/', (req, res) => res.send('Bot is running!'));
+app.get('/', (req, res) => res.send('BMS Alerts Bot is running!'));
 
-// ===== Telegram bot setup =====
+// ===== Telegram bot setup (webhook) =====
 const bot = new TelegramBot(BOT_TOKEN);
 bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
 app.post(`/bot${BOT_TOKEN}`, (req, res) => {
@@ -41,8 +43,8 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 // ===== User sessions =====
 const sessions = {};
 
-// ===== Helper Functions =====
-async function sendTelegramMessage(chatId, message, firstName = '') {
+// ===== Helper =====
+async function sendMsg(chatId, message) {
   try {
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
   } catch (err) {
@@ -50,20 +52,19 @@ async function sendTelegramMessage(chatId, message, firstName = '') {
   }
 }
 
-function parseShowTimes(text) {
-  const regex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
-  const times = [];
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    let hour = parseInt(match[1], 10);
-    const period = match[3].toUpperCase();
-    if (period === 'PM' && hour !== 12) hour += 12;
-    if (period === 'AM' && hour === 12) hour = 0;
-    times.push({ hour24: hour, text: match[0] });
-  }
-  return times;
+// Parse "06:15 AM" / "9:30 PM" → 24h integer
+function parseShowTime(timeStr) {
+  // timeStr like "06:15 AM" or "9:30 PM"
+  const match = timeStr && timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const period = match[3].toUpperCase();
+  if (period === 'PM' && hour !== 12) hour += 12;
+  if (period === 'AM' && hour === 12) hour = 0;
+  return hour;
 }
 
+// ===== BMS API check =====
 async function checkShowForUser(chatId) {
   const session = sessions[chatId];
   if (!session) return;
@@ -73,199 +74,223 @@ async function checkShowForUser(chatId) {
 
   const theatreKey = theatre.toLowerCase().trim();
   const cityKey = city.toLowerCase().trim();
-  const venueCode = VENUE_MAP[theatreKey] || theatre.toUpperCase();
-  const regionCode = REGION_MAP[cityKey] || city.toUpperCase();
+  const venueCode = VENUE_MAP[theatreKey] || theatre.toUpperCase().replace(/\s+/g, '').slice(0, 6);
+  const regionCode = REGION_MAP[cityKey] || city.toUpperCase().slice(0, 4);
+
+  const apiUrl = 'https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue';
 
   try {
-    console.log('Checking show:', { movie, theatre, venueCode, regionCode, dateSlug });
+    console.log(`[CHECK] movie="${movie}" venue="${venueCode}" region="${regionCode}" date="${dateSlug}"`);
 
-    const response = await axios.get(
-      'https://in.bookmyshow.com/api/movies-data/showtimes-by-event',
-      {
-        params: {
-          appCode: 'MOBAND2',
-          appVersion: '14.3.4',
-          language: 'en',
-          eventCode: 'SATB',        // ← always SATB, this is the event/cinema type
-          regionCode: regionCode,
-          subRegion: regionCode,
-          bmsId: '1.21.0',
-          token: '67x1xa33b4x422b361ba',
-          lat: '12.9716',
-          lon: '77.5946',
-          dateCode: dateSlug,
-          venueCode: venueCode,     // ← add venue code as separate param
-        },
-        headers: {
-          'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
-          'x-region-code': regionCode,
-          'x-subregion-code': regionCode,
-          'Accept': 'application/json',
-        },
-        timeout: 15000,
-      }
-    );
+    const response = await axios.get(apiUrl, {
+      params: {
+        appCode: 'MOBAND2',
+        appVersion: '14.3.4',
+        language: 'en',
+        venueCode: venueCode,
+        regionCode: regionCode,
+        bmsId: '1.21.0',
+        token: '67x1xa33b4x422b361ba',
+        lat: '12.9716',
+        lon: '77.5946',
+        dateCode: dateSlug,
+      },
+      headers: {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
+        'x-region-code': regionCode,
+        'x-subregion-code': regionCode,
+        'Accept': 'application/json',
+      },
+      timeout: 15000,
+    });
 
     const data = response.data;
-    console.log('Response data:', Object.keys(data));
-    console.log('Raw:', JSON.stringify(data).slice(0, 1000));
-    console.log(data)
     const showDetails = data?.ShowDetails || [];
 
     if (showDetails.length === 0) {
-      console.log('No shows found yet for this venue/date');
+      console.log('[CHECK] No ShowDetails in response yet');
       return;
     }
 
     let movieFound = false;
-    let allMatchedTimes = [];
-    let allAvailableTimes = [];
+    const matchedTimes = [];
+    const availableTimes = [];
 
-    for (const show of showDetails) {
-      // Match theatre
-      const venueName = (show?.VenueName || '').toLowerCase();
-      const showVenueCode = (show?.VenueCode || '').toLowerCase();
+    for (const showDay of showDetails) {
+      const events = showDay?.Event || [];
 
-      const theatreMatches =
-        venueName.includes(theatreKey) ||
-        showVenueCode.includes(venueCode.toLowerCase()) ||
-        theatreKey.includes(venueName.split(' ')[0]);
-
-      if (!theatreMatches) continue;
-
-      console.log('Matched theatre:', show.VenueName);
-
-      const events = show?.Event || [];
       for (const event of events) {
-        const title = event?.EventTitle || '';
+        const title = (event?.EventTitle || '').trim();
         if (!title.toLowerCase().includes(movie.toLowerCase())) continue;
 
         movieFound = true;
-        console.log('Matched movie:', title);
+        console.log(`[CHECK] Matched movie: "${title}"`);
 
         const childEvents = event?.ChildEvents || [];
         for (const child of childEvents) {
-          const showTime = child?.EventShowTime || child?.ShowTime || '';
-          if (!showTime) continue;
+          const showTimes = child?.ShowTimes || [];
+          for (const st of showTimes) {
+            const timeStr = st?.ShowTime || '';
+            if (!timeStr) continue;
 
-          const times = parseShowTimes(showTime);
-          allAvailableTimes.push(...times);
+            const hour = parseShowTime(timeStr);
+            if (hour === null) continue;
 
-          const matched = times.filter(({ hour24 }) =>
-            ranges.some(({ from, to }) => hour24 >= from && hour24 <= to)
-          );
-          allMatchedTimes.push(...matched);
-          console.log(`  Showtime: ${showTime} — in range: ${matched.length > 0}`);
+            availableTimes.push(timeStr);
+
+            const inRange = ranges.some(({ from, to }) => hour >= from && hour <= to);
+            if (inRange) {
+              matchedTimes.push(timeStr);
+            }
+          }
         }
       }
     }
 
-    console.log('Final result:', {
-      movieFound,
-      available: allAvailableTimes.map(t => t.text),
-      matched: allMatchedTimes.map(t => t.text),
-    });
+    console.log(`[CHECK] movieFound=${movieFound} available=${availableTimes.join(',')} matched=${matchedTimes.join(',')}`);
 
-    if (movieFound && allMatchedTimes.length > 0) {
-      const bookUrl = `https://in.bookmyshow.com/cinemas/${cityKey.replace(/\s+/g, '-')}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
-      await sendTelegramMessage(
+    if (movieFound && matchedTimes.length > 0) {
+      const citySlug = cityKey.replace(/\s+/g, '-');
+      const theatreSlug = theatreKey.replace(/\s+/g, '-');
+      const bookUrl = `https://in.bookmyshow.com/cinemas/${citySlug}/${theatreSlug}/buytickets/${venueCode}/${dateSlug}`;
+
+      await sendMsg(
         chatId,
         `🎬 <b>${movie}</b> is now available at <b>${theatre}</b>!\n` +
         `📅 Date: ${date}\n` +
-        `🕐 Showtimes: ${allMatchedTimes.map(t => t.text).join(', ')}\n` +
-        `🔗 <a href="${bookUrl}">Book Now</a>`,
-        firstName
+        `🕐 Showtimes in your range: ${matchedTimes.join(', ')}\n` +
+        `🔗 <a href="${bookUrl}">Book Now</a>`
       );
       clearInterval(session.interval);
       delete sessions[chatId];
-    } else if (movieFound && allAvailableTimes.length > 0) {
-      console.log(`Movie found but not in your time range. Available: ${allAvailableTimes.map(t => t.text).join(', ')}`);
+
+    } else if (movieFound && availableTimes.length > 0) {
+      console.log(`[CHECK] Movie found but not in range. Available: ${availableTimes.join(', ')}`);
     } else if (movieFound) {
-      console.log(`Movie found but no showtimes listed yet`);
+      console.log(`[CHECK] Movie found but no showtimes listed yet`);
     } else {
-      console.log(`Movie "${movie}" not listed yet at "${theatre}"`);
+      console.log(`[CHECK] Movie "${movie}" not found yet at venue "${venueCode}"`);
     }
 
   } catch (err) {
-    console.error('Error checking show:', err.message);
+    console.error('[CHECK] Error:', err.message);
     if (err.response) {
-      console.error('Status:', err.response.status);
-      console.error('Data:', JSON.stringify(err.response.data).slice(0, 300));
+      console.error('  Status:', err.response.status);
+      console.error('  Data:', JSON.stringify(err.response.data).slice(0, 300));
     }
   }
 }
 
-// ===== Telegram Interaction =====
+// ===== Bot conversation flow =====
 bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
-  const firstName = msg.from.first_name || 'Friend';
+  const firstName = msg.from?.first_name || 'Friend';
   sessions[chatId] = { step: 1, firstName };
-  sendTelegramMessage(chatId, `<b>🎬 Welcome to BookMyShow Alerts, ${firstName}!</b>\nWhich movie would you like to track?`, firstName);
+  sendMsg(chatId,
+    `🎬 <b>Welcome to BookMyShow Alerts, ${firstName}!</b>\n\nI'll ping you the moment your show opens for booking.\n\nWhich <b>movie</b> would you like to track?`
+  );
 });
 
 bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const session = sessions[chatId];
-  if (!session || msg.text.startsWith('/start')) return;
+  if (!session || !msg.text || msg.text.startsWith('/')) return;
 
-  session.firstName = msg.from.first_name || session.firstName;
+  session.firstName = msg.from?.first_name || session.firstName;
 
   switch (session.step) {
     case 1:
       session.movie = msg.text.trim();
       session.step = 2;
-      sendTelegramMessage(chatId, `✅ Movie: <code>${session.movie}</code>\nWhich city?`, session.firstName);
+      sendMsg(chatId, `✅ Movie: <code>${session.movie}</code>\n\nWhich <b>city</b>? (e.g. Bengaluru, Mumbai)`);
       break;
+
     case 2:
       session.city = msg.text.trim();
       session.step = 3;
-      sendTelegramMessage(chatId, `✅ City: <code>${session.city}</code>\nWhich theatre?`, session.firstName);
+      sendMsg(chatId, `✅ City: <code>${session.city}</code>\n\nWhich <b>theatre</b>? (e.g. Sandhya, PVR Forum Mall)`);
       break;
+
     case 3:
       session.theatre = msg.text.trim();
       session.step = 4;
-      sendTelegramMessage(chatId, `✅ Theatre: <code>${session.theatre}</code>\nWhat date? (YYYY-MM-DD)`, session.firstName);
+      sendMsg(chatId, `✅ Theatre: <code>${session.theatre}</code>\n\nWhat <b>date</b>? (format: YYYY-MM-DD)`);
       break;
+
     case 4:
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(msg.text.trim())) {
+        sendMsg(chatId, `⚠️ Invalid date format. Please use YYYY-MM-DD (e.g. 2026-07-15)`);
+        break;
+      }
       session.date = msg.text.trim();
       session.step = 5;
-      sendTelegramMessage(chatId, `✅ Date: <code>${session.date}</code>\nTime ranges? (e.g., 17-20,21-23)`, session.firstName);
+      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nWhat <b>time ranges</b> work for you? (e.g. <code>17-20,21-23</code> for 5–8 PM or 9–11 PM)`);
       break;
-    case 5:
-      session.ranges = msg.text.split(',').map(r => {
-        const [from, to] = r.split('-').map(Number);
-        return { from, to: to || from };
-      });
-      session.step = 6;
-      sendTelegramMessage(chatId, `✅ Time range set. How many hours should I check?`, session.firstName);
-      break;
-    case 6:
-      const hours = parseInt(msg.text.trim());
-      const intervalMs = 2 * 60 * 1000;
-      const endTime = Date.now() + hours * 60 * 60 * 1000;
-      sendTelegramMessage(chatId, `🎯 Tracking started for ${hours} hours!`, session.firstName);
 
+    case 5: {
+      const parsed = msg.text.trim().split(',').map(r => {
+        const [from, to] = r.trim().split('-').map(Number);
+        return { from, to: isNaN(to) ? from : to };
+      });
+      if (parsed.some(r => isNaN(r.from))) {
+        sendMsg(chatId, `⚠️ Invalid format. Try: <code>17-20,21-23</code>`);
+        break;
+      }
+      session.ranges = parsed;
+      session.step = 6;
+      sendMsg(chatId, `✅ Time ranges set.\n\nFor how many <b>hours</b> should I keep checking? (e.g. <code>6</code>)`);
+      break;
+    }
+
+    case 6: {
+      const hours = parseInt(msg.text.trim());
+      if (isNaN(hours) || hours <= 0) {
+        sendMsg(chatId, `⚠️ Please enter a valid number of hours (e.g. 6)`);
+        break;
+      }
+
+      const intervalMs = 2 * 60 * 1000; // check every 2 minutes
+      const endTime = Date.now() + hours * 60 * 60 * 1000;
+
+      const rangeStr = session.ranges.map(r => `${r.from}:00–${r.to}:00`).join(', ');
+      await sendMsg(
+        chatId,
+        `🎯 <b>Tracking started!</b>\n\n` +
+        `🎬 Movie: <b>${session.movie}</b>\n` +
+        `🏛️ Theatre: <b>${session.theatre}</b>, ${session.city}\n` +
+        `📅 Date: <b>${session.date}</b>\n` +
+        `🕐 Time windows: <b>${rangeStr}</b>\n` +
+        `⏱️ Checking every 2 minutes for ${hours} hour${hours > 1 ? 's' : ''}.`
+      );
+
+      // Immediate first check
       await checkShowForUser(chatId);
 
-      session.interval = setInterval(async () => {
-        if (Date.now() > endTime) {
-          await sendTelegramMessage(chatId, `⏰ Time's up! No shows found for <code>${session.movie}</code>.`, session.firstName);
-          clearInterval(session.interval);
-          delete sessions[chatId];
-        } else {
-          await checkShowForUser(chatId);
-        }
-      }, intervalMs);
+      if (sessions[chatId]) { // if not already found & deleted
+        session.interval = setInterval(async () => {
+          if (Date.now() > endTime) {
+            await sendMsg(chatId, `⏰ Time's up! No matching shows found for <b>${session.movie}</b> in your time range.\n\nUse /start to set up a new alert.`);
+            clearInterval(session.interval);
+            delete sessions[chatId];
+          } else {
+            await checkShowForUser(chatId);
+          }
+        }, intervalMs);
+      }
 
       session.step = 7;
       break;
+    }
   }
 });
 
-// ===== Keep Render app awake =====
+// ===== Keep Render awake (pings self every 5 min) =====
 setInterval(() => {
-  axios.get(HOST_URL).catch(() => { });
+  axios.get(HOST_URL).catch(() => {});
 }, 5 * 60 * 1000);
 
-// ===== Start Express server =====
-app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+// ===== Start =====
+app.listen(PORT, () => {
+  console.log(`✅ BMS Alerts bot running on port ${PORT}`);
+  console.log(`   Webhook: ${HOST_URL}/bot${BOT_TOKEN}`);
+});
