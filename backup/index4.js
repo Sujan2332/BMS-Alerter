@@ -6,12 +6,6 @@ const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
-// Get Chrome path from puppeteer itself — it always knows where it installed Chrome
-const puppeteerVanilla = require('puppeteer');
-const CHROME_EXEC = puppeteerVanilla.executablePath();
-console.log('[CHROME]', fs.existsSync(CHROME_EXEC) ? 'Found: ' + CHROME_EXEC : 'MISSING: ' + CHROME_EXEC);
-
-// Now load puppeteer-extra (plugins on top of puppeteer)
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const AnonymizeUA = require('puppeteer-extra-plugin-anonymize-ua');
@@ -23,6 +17,78 @@ puppeteer.use(AnonymizeUA());
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
 const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
+
+// ===== Find Chrome =====
+function scanDir(dir, depth = 0) {
+  if (depth > 4 || !fs.existsSync(dir)) return null;
+  try {
+    for (const entry of fs.readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      if (entry === 'chrome' && !fs.statSync(full).isDirectory()) {
+        try { fs.accessSync(full, fs.constants.X_OK); return full; } catch {}
+      }
+      if (fs.statSync(full).isDirectory()) {
+        const found = scanDir(full, depth + 1);
+        if (found) return found;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function findChrome() {
+  // 1. Explicit env var
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
+    return process.env.CHROME_PATH;
+  }
+
+  // 2. Project-local cache (where .puppeteerrc.cjs points)
+  const localCache = path.join(__dirname, '.cache', 'puppeteer');
+  const localFound = scanDir(localCache);
+  if (localFound) return localFound;
+
+  // 3. Render's global puppeteer cache
+  const renderCache = '/opt/render/.cache/puppeteer';
+  const renderFound = scanDir(renderCache);
+  if (renderFound) return renderFound;
+
+  // 4. HOME-based cache
+  const homeCache = path.join(process.env.HOME || '/root', '.cache', 'puppeteer');
+  const homeFound = scanDir(homeCache);
+  if (homeFound) return homeFound;
+
+  // 5. System Chrome binaries
+  for (const p of [
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/snap/bin/chromium',
+  ]) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  return null;
+}
+
+const CHROME_EXEC = findChrome();
+if (CHROME_EXEC) {
+  console.log('[CHROME] Found:', CHROME_EXEC);
+} else {
+  console.error('[CHROME] NOT FOUND — will attempt puppeteer default and likely fail');
+  // Log what we can see to help debug
+  for (const dir of [
+    path.join(__dirname, '.cache'),
+    '/opt/render/.cache/puppeteer',
+    path.join(process.env.HOME || '/root', '.cache', 'puppeteer'),
+  ]) {
+    if (fs.existsSync(dir)) {
+      console.log('[CHROME] Contents of', dir, ':', JSON.stringify(fs.readdirSync(dir)));
+    } else {
+      console.log('[CHROME] Missing dir:', dir);
+    }
+  }
+}
 
 // ===== Venue & Region mapping =====
 const VENUE_MAP = {
@@ -71,9 +137,8 @@ async function getBrowser() {
     }
   }
 
-  sharedBrowser = await puppeteer.launch({
+  const launchOpts = {
     headless: true,
-    executablePath: CHROME_EXEC,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -83,7 +148,11 @@ async function getBrowser() {
       '--single-process',
     ],
     userDataDir: path.join(__dirname, 'profile'),
-  });
+  };
+
+  if (CHROME_EXEC) launchOpts.executablePath = CHROME_EXEC;
+
+  sharedBrowser = await puppeteer.launch(launchOpts);
   console.log('[BROWSER] Launched');
   return sharedBrowser;
 }
@@ -119,7 +188,7 @@ function sanitizeHeaders(raw) {
   );
 }
 
-// ===== Core: load BMS page → intercept API call → replay with real headers =====
+// ===== Core: load BMS page → intercept API → replay =====
 async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
   const bmsPageUrl = `https://in.bookmyshow.com/cinemas/bengaluru/sandhya-cinema-bengaluru/buytickets/${venueCode}/${dateSlug}`;
   const apiPattern = '/api/v3/mobile/showtimes/byvenue';
@@ -159,10 +228,10 @@ async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
     }
 
     if (!capturedSession) {
-      throw new Error('BMS API call not intercepted — Cloudflare may have blocked the page load');
+      throw new Error('BMS API call not intercepted — Cloudflare may have challenged the request');
     }
 
-    // Override with the specific venue/date we want
+    // Override with the specific date/venue we actually want
     capturedSession.params.venueCode = venueCode;
     capturedSession.params.regionCode = regionCode;
     capturedSession.params.dateCode = dateSlug;
