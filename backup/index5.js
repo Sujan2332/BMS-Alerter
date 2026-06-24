@@ -6,16 +6,10 @@ const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
-// Get Chrome path — puppeteer knows exactly where it installed Chrome
+// Get Chrome path from puppeteer itself — it always knows where it installed Chrome
 const puppeteerVanilla = require('puppeteer');
 const CHROME_EXEC = puppeteerVanilla.executablePath();
-if (!fs.existsSync(CHROME_EXEC)) {
-  // install-chrome.js should have handled this before we got here,
-  // but log clearly if somehow it's still missing
-  console.error('[CHROME] STILL MISSING after install:', CHROME_EXEC);
-  process.exit(1);
-}
-console.log('[CHROME] Found:', CHROME_EXEC);
+console.log('[CHROME]', fs.existsSync(CHROME_EXEC) ? 'Found: ' + CHROME_EXEC : 'MISSING: ' + CHROME_EXEC);
 
 // Now load puppeteer-extra (plugins on top of puppeteer)
 const puppeteer = require('puppeteer-extra');
