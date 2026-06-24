@@ -3,14 +3,6 @@ require('dotenv').config();
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const path = require('path');
-
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const AnonymizeUA = require('puppeteer-extra-plugin-anonymize-ua');
-
-puppeteer.use(StealthPlugin());
-puppeteer.use(AnonymizeUA());
 
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
@@ -51,24 +43,6 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
 // ===== User sessions =====
 const sessions = {};
 
-// ===== Shared browser instance (reused across checks) =====
-let sharedBrowser = null;
-
-async function getBrowser() {
-  if (sharedBrowser && sharedBrowser.isConnected()) return sharedBrowser;
-  sharedBrowser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage',
-    ],
-    userDataDir: path.join(__dirname, 'profile'), // reuse cookies/session
-  });
-  return sharedBrowser;
-}
-
 // ===== Helper =====
 async function sendMsg(chatId, message) {
   try {
@@ -78,8 +52,9 @@ async function sendMsg(chatId, message) {
   }
 }
 
-// Parse "06:15 AM" or "9:30 PM" → 24h integer hour
+// Parse "06:15 AM" / "9:30 PM" → 24h integer
 function parseShowTime(timeStr) {
+  // timeStr like "06:15 AM" or "9:30 PM"
   const match = timeStr && timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (!match) return null;
   let hour = parseInt(match[1], 10);
@@ -89,123 +64,51 @@ function parseShowTime(timeStr) {
   return hour;
 }
 
-// Headers that can't be forwarded (browser-controlled or would conflict)
-const BLOCKED_HEADERS = new Set([
-  'host', 'content-length', 'connection',
-  'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest',
-  'upgrade-insecure-requests',
-]);
-
-function sanitizeHeaders(raw) {
-  return Object.fromEntries(
-    Object.entries(raw).filter(([k]) => !BLOCKED_HEADERS.has(k.toLowerCase()))
-  );
-}
-
-// ===== Core: open BMS page in browser, intercept live API call, replay it =====
-async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
-  const pageUrl = `https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue?appCode=MOBAND2&appVersion=14.3.4&language=en&venueCode=${venueCode}&regionCode=${regionCode}&bmsId=1.21.0&token=67x1xa33b4x422b361ba&lat=12.9716&lon=77.5946&dateCode=${dateSlug}`;
-
-  // We load a real BMS cinema page so Cloudflare sees legitimate browser traffic,
-  // then intercept the showtimes API call the page makes, and capture its auth headers.
-  const bmsPageUrl = `https://in.bookmyshow.com/cinemas/bengaluru/sandhya-cinema-bengaluru/buytickets/${venueCode}/${dateSlug}`;
-
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-
-  let capturedSession = null;
-
-  try {
-    await page.setExtraHTTPHeaders({ 'accept-language': 'en-IN,en;q=0.9' });
-    await page.setViewport({ width: 1366, height: 768 });
-
-    // Block heavy resources to speed up load
-    await page.setRequestInterception(true);
-    page.on('request', req => {
-      const type = req.resourceType();
-      const url = req.url();
-
-      // Intercept the showtimes API call to capture live headers & params
-      if (url.includes('/api/v3/mobile/showtimes/byvenue')) {
-        const parsed = new URL(url);
-        capturedSession = {
-          params: Object.fromEntries(parsed.searchParams.entries()),
-          headers: sanitizeHeaders(req.headers()),
-        };
-      }
-
-      if (['image', 'font', 'media'].includes(type)) {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
-
-    // Load the real BMS page — this triggers the showtimes API call
-    console.log(`[BROWSER] Loading: ${bmsPageUrl}`);
-    await page.goto(bmsPageUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-
-    // Wait up to 10s for the API call to be intercepted
-    const deadline = Date.now() + 10000;
-    while (!capturedSession && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 500));
-    }
-
-    if (!capturedSession) {
-      // Fallback: try the API URL directly in-browser (avoids CF for API subdomain)
-      console.log('[BROWSER] No session captured via page load, trying direct API fetch...');
-      const result = await page.evaluate(async (url) => {
-        try {
-          const res = await fetch(url, { credentials: 'include' });
-          const text = await res.text();
-          return { ok: res.ok, status: res.status, body: text };
-        } catch (e) {
-          return { ok: false, error: e.message };
-        }
-      }, pageUrl);
-
-      if (result.ok) {
-        return JSON.parse(result.body);
-      }
-
-      throw new Error('Could not capture BMS session or fetch data directly');
-    }
-
-    // Replay the captured API call with live headers (includes CF cookies/tokens)
-    console.log('[BROWSER] Session captured, replaying API call...');
-    const response = await axios.get('https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue', {
-      params: capturedSession.params,
-      headers: capturedSession.headers,
-      timeout: 20000,
-    });
-
-    return response.data;
-
-  } finally {
-    await page.close().catch(() => {});
-  }
-}
-
-// ===== Main check per user =====
+// ===== BMS API check =====
 async function checkShowForUser(chatId) {
   const session = sessions[chatId];
   if (!session) return;
 
-  const { movie, theatre, city, date, ranges } = session;
+  const { movie, theatre, city, date, ranges, firstName } = session;
   const dateSlug = date.replace(/-/g, '');
+
   const theatreKey = theatre.toLowerCase().trim();
   const cityKey = city.toLowerCase().trim();
   const venueCode = VENUE_MAP[theatreKey] || theatre.toUpperCase().replace(/\s+/g, '').slice(0, 6);
   const regionCode = REGION_MAP[cityKey] || city.toUpperCase().slice(0, 4);
 
+  const apiUrl = 'https://in.bookmyshow.com/api/v3/mobile/showtimes/byvenue';
+
   try {
     console.log(`[CHECK] movie="${movie}" venue="${venueCode}" region="${regionCode}" date="${dateSlug}"`);
 
-    const data = await fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug);
+    const response = await axios.get(apiUrl, {
+      params: {
+        appCode: 'MOBAND2',
+        appVersion: '14.3.4',
+        language: 'en',
+        venueCode: venueCode,
+        regionCode: regionCode,
+        bmsId: '1.21.0',
+        token: '67x1xa33b4x422b361ba',
+        lat: '12.9716',
+        lon: '77.5946',
+        dateCode: dateSlug,
+      },
+      headers: {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13)',
+        'x-region-code': regionCode,
+        'x-subregion-code': regionCode,
+        'Accept': 'application/json',
+      },
+      timeout: 15000,
+    });
+
+    const data = response.data;
     const showDetails = data?.ShowDetails || [];
 
     if (showDetails.length === 0) {
-      console.log('[CHECK] No ShowDetails yet');
+      console.log('[CHECK] No ShowDetails in response yet');
       return;
     }
 
@@ -214,22 +117,29 @@ async function checkShowForUser(chatId) {
     const availableTimes = [];
 
     for (const showDay of showDetails) {
-      for (const event of (showDay?.Event || [])) {
+      const events = showDay?.Event || [];
+
+      for (const event of events) {
         const title = (event?.EventTitle || '').trim();
         if (!title.toLowerCase().includes(movie.toLowerCase())) continue;
 
         movieFound = true;
         console.log(`[CHECK] Matched movie: "${title}"`);
 
-        for (const child of (event?.ChildEvents || [])) {
-          for (const st of (child?.ShowTimes || [])) {
+        const childEvents = event?.ChildEvents || [];
+        for (const child of childEvents) {
+          const showTimes = child?.ShowTimes || [];
+          for (const st of showTimes) {
             const timeStr = st?.ShowTime || '';
             if (!timeStr) continue;
+
             const hour = parseShowTime(timeStr);
             if (hour === null) continue;
 
             availableTimes.push(timeStr);
-            if (ranges.some(({ from, to }) => hour >= from && hour <= to)) {
+
+            const inRange = ranges.some(({ from, to }) => hour >= from && hour <= to);
+            if (inRange) {
               matchedTimes.push(timeStr);
             }
           }
@@ -237,26 +147,29 @@ async function checkShowForUser(chatId) {
       }
     }
 
-    console.log(`[CHECK] found=${movieFound} available=[${availableTimes.join(', ')}] matched=[${matchedTimes.join(', ')}]`);
+    console.log(`[CHECK] movieFound=${movieFound} available=${availableTimes.join(',')} matched=${matchedTimes.join(',')}`);
 
     if (movieFound && matchedTimes.length > 0) {
-      const bookUrl = `https://in.bookmyshow.com/cinemas/${cityKey.replace(/\s+/g, '-')}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
+      const citySlug = cityKey.replace(/\s+/g, '-');
+      const theatreSlug = theatreKey.replace(/\s+/g, '-');
+      const bookUrl = `https://in.bookmyshow.com/cinemas/${citySlug}/${theatreSlug}/buytickets/${venueCode}/${dateSlug}`;
+
       await sendMsg(
         chatId,
-        `🎬 <b>${movie}</b> is now bookable at <b>${theatre}</b>!\n` +
+        `🎬 <b>${movie}</b> is now available at <b>${theatre}</b>!\n` +
         `📅 Date: ${date}\n` +
         `🕐 Showtimes in your range: ${matchedTimes.join(', ')}\n` +
-        `🔗 <a href="${bookUrl}">Book Now on BMS</a>`
+        `🔗 <a href="${bookUrl}">Book Now</a>`
       );
       clearInterval(session.interval);
       delete sessions[chatId];
 
     } else if (movieFound && availableTimes.length > 0) {
-      console.log(`[CHECK] Movie up but not in range. Available: ${availableTimes.join(', ')}`);
+      console.log(`[CHECK] Movie found but not in range. Available: ${availableTimes.join(', ')}`);
     } else if (movieFound) {
       console.log(`[CHECK] Movie found but no showtimes listed yet`);
     } else {
-      console.log(`[CHECK] "${movie}" not listed yet at "${venueCode}"`);
+      console.log(`[CHECK] Movie "${movie}" not found yet at venue "${venueCode}"`);
     }
 
   } catch (err) {
@@ -311,7 +224,7 @@ bot.on('message', async msg => {
       }
       session.date = msg.text.trim();
       session.step = 5;
-      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nWhat <b>time ranges</b> work for you?\n(e.g. <code>17-20,21-23</code> means 5–8 PM or 9–11 PM)`);
+      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nWhat <b>time ranges</b> work for you? (e.g. <code>17-20,21-23</code> for 5–8 PM or 9–11 PM)`);
       break;
 
     case 5: {
@@ -336,10 +249,10 @@ bot.on('message', async msg => {
         break;
       }
 
-      const intervalMs = 3 * 60 * 1000; // check every 3 minutes
+      const intervalMs = 2 * 60 * 1000; // check every 2 minutes
       const endTime = Date.now() + hours * 60 * 60 * 1000;
-      const rangeStr = session.ranges.map(r => `${r.from}:00–${r.to}:00`).join(', ');
 
+      const rangeStr = session.ranges.map(r => `${r.from}:00–${r.to}:00`).join(', ');
       await sendMsg(
         chatId,
         `🎯 <b>Tracking started!</b>\n\n` +
@@ -347,18 +260,16 @@ bot.on('message', async msg => {
         `🏛️ Theatre: <b>${session.theatre}</b>, ${session.city}\n` +
         `📅 Date: <b>${session.date}</b>\n` +
         `🕐 Time windows: <b>${rangeStr}</b>\n` +
-        `⏱️ Checking every 3 min for ${hours} hour${hours > 1 ? 's' : ''}.`
+        `⏱️ Checking every 2 minutes for ${hours} hour${hours > 1 ? 's' : ''}.`
       );
 
       // Immediate first check
       await checkShowForUser(chatId);
 
-      if (sessions[chatId]) {
+      if (sessions[chatId]) { // if not already found & deleted
         session.interval = setInterval(async () => {
           if (Date.now() > endTime) {
-            await sendMsg(chatId,
-              `⏰ Time's up! No matching shows found for <b>${session.movie}</b>.\n\nUse /start to set a new alert.`
-            );
+            await sendMsg(chatId, `⏰ Time's up! No matching shows found for <b>${session.movie}</b> in your time range.\n\nUse /start to set up a new alert.`);
             clearInterval(session.interval);
             delete sessions[chatId];
           } else {
@@ -373,7 +284,7 @@ bot.on('message', async msg => {
   }
 });
 
-// ===== Keep Render awake =====
+// ===== Keep Render awake (pings self every 5 min) =====
 setInterval(() => {
   axios.get(HOST_URL).catch(() => {});
 }, 5 * 60 * 1000);
