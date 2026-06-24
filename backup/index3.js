@@ -18,77 +18,57 @@ const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t
 const PORT = process.env.PORT || 3000;
 const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
 
-// ===== Find Chrome =====
-function scanDir(dir, depth = 0) {
-  if (depth > 4 || !fs.existsSync(dir)) return null;
-  try {
-    for (const entry of fs.readdirSync(dir)) {
-      const full = path.join(dir, entry);
-      if (entry === 'chrome' && !fs.statSync(full).isDirectory()) {
-        try { fs.accessSync(full, fs.constants.X_OK); return full; } catch {}
-      }
-      if (fs.statSync(full).isDirectory()) {
-        const found = scanDir(full, depth + 1);
-        if (found) return found;
-      }
-    }
-  } catch {}
-  return null;
-}
-
+// ===== Find Chrome executable =====
 function findChrome() {
-  // 1. Explicit env var
+  // 1. Explicit env var (set this in Render dashboard if needed)
   if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
     return process.env.CHROME_PATH;
   }
 
-  // 2. Project-local cache (where .puppeteerrc.cjs points)
-  const localCache = path.join(__dirname, '.cache', 'puppeteer');
-  const localFound = scanDir(localCache);
-  if (localFound) return localFound;
+  // 2. Where puppeteer@24 downloads Chrome on Render (PUPPETEER_CACHE_DIR)
+  const cacheDir = process.env.PUPPETEER_CACHE_DIR
+    || process.env.XDG_CACHE_HOME && path.join(process.env.XDG_CACHE_HOME, 'puppeteer')
+    || path.join(process.env.HOME || '/root', '.cache', 'puppeteer');
 
-  // 3. Render's global puppeteer cache
-  const renderCache = '/opt/render/.cache/puppeteer';
-  const renderFound = scanDir(renderCache);
-  if (renderFound) return renderFound;
+  // Walk cache dir looking for chrome binary
+  const tryPaths = [
+    // Render's default puppeteer cache
+    path.join(cacheDir, 'chrome'),
+    path.join('/opt/render/.cache/puppeteer', 'chrome'),
+  ];
 
-  // 4. HOME-based cache
-  const homeCache = path.join(process.env.HOME || '/root', '.cache', 'puppeteer');
-  const homeFound = scanDir(homeCache);
-  if (homeFound) return homeFound;
+  for (const base of tryPaths) {
+    if (!fs.existsSync(base)) continue;
+    // Glob for chrome binary: chrome/linux-XXX/chrome-linux64/chrome
+    const platforms = fs.readdirSync(base);
+    for (const platform of platforms) {
+      const candidates = [
+        path.join(base, platform, 'chrome-linux64', 'chrome'),
+        path.join(base, platform, 'chrome-linux64', 'chrome-linux64', 'chrome'),
+        path.join(base, platform, 'chrome', 'chrome'),
+      ];
+      for (const c of candidates) {
+        if (fs.existsSync(c)) return c;
+      }
+    }
+  }
 
-  // 5. System Chrome binaries
-  for (const p of [
+  // 3. System Chrome (if Render image has it)
+  const systemPaths = [
     '/usr/bin/google-chrome-stable',
     '/usr/bin/google-chrome',
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
-    '/snap/bin/chromium',
-  ]) {
+  ];
+  for (const p of systemPaths) {
     if (fs.existsSync(p)) return p;
   }
 
-  return null;
+  return null; // puppeteer will use its own default and likely error clearly
 }
 
 const CHROME_EXEC = findChrome();
-if (CHROME_EXEC) {
-  console.log('[CHROME] Found:', CHROME_EXEC);
-} else {
-  console.error('[CHROME] NOT FOUND — will attempt puppeteer default and likely fail');
-  // Log what we can see to help debug
-  for (const dir of [
-    path.join(__dirname, '.cache'),
-    '/opt/render/.cache/puppeteer',
-    path.join(process.env.HOME || '/root', '.cache', 'puppeteer'),
-  ]) {
-    if (fs.existsSync(dir)) {
-      console.log('[CHROME] Contents of', dir, ':', JSON.stringify(fs.readdirSync(dir)));
-    } else {
-      console.log('[CHROME] Missing dir:', dir);
-    }
-  }
-}
+console.log('[CHROME]', CHROME_EXEC || 'Not found — using puppeteer default');
 
 // ===== Venue & Region mapping =====
 const VENUE_MAP = {
@@ -130,6 +110,7 @@ let sharedBrowser = null;
 async function getBrowser() {
   if (sharedBrowser) {
     try {
+      // Check if still alive
       await sharedBrowser.version();
       return sharedBrowser;
     } catch {
@@ -153,11 +134,11 @@ async function getBrowser() {
   if (CHROME_EXEC) launchOpts.executablePath = CHROME_EXEC;
 
   sharedBrowser = await puppeteer.launch(launchOpts);
-  console.log('[BROWSER] Launched');
+  console.log('[BROWSER] Launched Chrome');
   return sharedBrowser;
 }
 
-// ===== Helpers =====
+// ===== Helper =====
 async function sendMsg(chatId, message) {
   try {
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -188,7 +169,7 @@ function sanitizeHeaders(raw) {
   );
 }
 
-// ===== Core: load BMS page → intercept API → replay =====
+// ===== Fetch showtimes via browser (bypasses Cloudflare) =====
 async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
   const bmsPageUrl = `https://in.bookmyshow.com/cinemas/bengaluru/sandhya-cinema-bengaluru/buytickets/${venueCode}/${dateSlug}`;
   const apiPattern = '/api/v3/mobile/showtimes/byvenue';
@@ -204,15 +185,18 @@ async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
 
     page.on('request', req => {
       const url = req.url();
+      const type = req.resourceType();
+
       if (url.includes(apiPattern) && !capturedSession) {
         const parsed = new URL(url);
         capturedSession = {
           params: Object.fromEntries(parsed.searchParams.entries()),
           headers: sanitizeHeaders(req.headers()),
         };
-        console.log('[BROWSER] API intercepted');
+        console.log('[BROWSER] API call intercepted');
       }
-      if (['image', 'font', 'media'].includes(req.resourceType())) {
+
+      if (['image', 'font', 'media'].includes(type)) {
         req.abort();
       } else {
         req.continue();
@@ -222,16 +206,17 @@ async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
     console.log(`[BROWSER] Loading: ${bmsPageUrl}`);
     await page.goto(bmsPageUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
+    // Wait up to 12s for API interception
     const deadline = Date.now() + 12000;
     while (!capturedSession && Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 400));
     }
 
     if (!capturedSession) {
-      throw new Error('BMS API call not intercepted — Cloudflare may have challenged the request');
+      throw new Error('BMS API call not intercepted — page may not have loaded the showtimes component');
     }
 
-    // Override with the specific date/venue we actually want
+    // Override params with our specific date/venue (page may have loaded different ones)
     capturedSession.params.venueCode = venueCode;
     capturedSession.params.regionCode = regionCode;
     capturedSession.params.dateCode = dateSlug;
@@ -249,7 +234,7 @@ async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
   }
 }
 
-// ===== Main check =====
+// ===== Main check per user =====
 async function checkShowForUser(chatId) {
   const session = sessions[chatId];
   if (!session) return;
@@ -267,7 +252,7 @@ async function checkShowForUser(chatId) {
     const data = await fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug);
     const showDetails = data?.ShowDetails || [];
 
-    if (!showDetails.length) {
+    if (showDetails.length === 0) {
       console.log('[CHECK] No ShowDetails yet');
       return;
     }
@@ -280,14 +265,17 @@ async function checkShowForUser(chatId) {
       for (const event of (showDay?.Event || [])) {
         const title = (event?.EventTitle || '').trim();
         if (!title.toLowerCase().includes(movie.toLowerCase())) continue;
+
         movieFound = true;
-        console.log(`[CHECK] Matched: "${title}"`);
+        console.log(`[CHECK] Matched movie: "${title}"`);
 
         for (const child of (event?.ChildEvents || [])) {
           for (const st of (child?.ShowTimes || [])) {
             const timeStr = st?.ShowTime || '';
+            if (!timeStr) continue;
             const hour = parseShowTime(timeStr);
             if (hour === null) continue;
+
             availableTimes.push(timeStr);
             if (ranges.some(({ from, to }) => hour >= from && hour <= to)) {
               matchedTimes.push(timeStr);
@@ -301,7 +289,8 @@ async function checkShowForUser(chatId) {
 
     if (movieFound && matchedTimes.length > 0) {
       const bookUrl = `https://in.bookmyshow.com/cinemas/${cityKey.replace(/\s+/g, '-')}/${theatreKey.replace(/\s+/g, '-')}/buytickets/${venueCode}/${dateSlug}`;
-      await sendMsg(chatId,
+      await sendMsg(
+        chatId,
         `🎬 <b>${movie}</b> is now bookable at <b>${theatre}</b>!\n` +
         `📅 Date: ${date}\n` +
         `🕐 Showtimes in your range: ${matchedTimes.join(', ')}\n` +
@@ -309,10 +298,11 @@ async function checkShowForUser(chatId) {
       );
       clearInterval(session.interval);
       delete sessions[chatId];
+
     } else if (movieFound && availableTimes.length > 0) {
-      console.log(`[CHECK] Not in range. Available: ${availableTimes.join(', ')}`);
+      console.log(`[CHECK] Movie up but not in range. Available: ${availableTimes.join(', ')}`);
     } else if (movieFound) {
-      console.log('[CHECK] Movie found, no showtimes yet');
+      console.log(`[CHECK] Movie found but no showtimes listed yet`);
     } else {
       console.log(`[CHECK] "${movie}" not listed yet at "${venueCode}"`);
     }
@@ -326,7 +316,7 @@ async function checkShowForUser(chatId) {
   }
 }
 
-// ===== Bot flow =====
+// ===== Bot conversation flow =====
 bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
   const firstName = msg.from?.first_name || 'Friend';
@@ -340,6 +330,7 @@ bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const session = sessions[chatId];
   if (!session || !msg.text || msg.text.startsWith('/')) return;
+
   session.firstName = msg.from?.first_name || session.firstName;
 
   switch (session.step) {
@@ -348,16 +339,19 @@ bot.on('message', async msg => {
       session.step = 2;
       sendMsg(chatId, `✅ Movie: <code>${session.movie}</code>\n\nWhich <b>city</b>? (e.g. Bengaluru, Mumbai)`);
       break;
+
     case 2:
       session.city = msg.text.trim();
       session.step = 3;
       sendMsg(chatId, `✅ City: <code>${session.city}</code>\n\nWhich <b>theatre</b>? (e.g. Sandhya, PVR Forum Mall)`);
       break;
+
     case 3:
       session.theatre = msg.text.trim();
       session.step = 4;
       sendMsg(chatId, `✅ Theatre: <code>${session.theatre}</code>\n\nWhat <b>date</b>? (format: YYYY-MM-DD)`);
       break;
+
     case 4:
       if (!/^\d{4}-\d{2}-\d{2}$/.test(msg.text.trim())) {
         sendMsg(chatId, `⚠️ Invalid date format. Please use YYYY-MM-DD (e.g. 2026-07-15)`);
@@ -365,8 +359,9 @@ bot.on('message', async msg => {
       }
       session.date = msg.text.trim();
       session.step = 5;
-      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nWhat <b>time ranges</b>?\n(e.g. <code>17-20,21-23</code> = 5–8 PM or 9–11 PM)`);
+      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nWhat <b>time ranges</b> work for you?\n(e.g. <code>17-20,21-23</code> means 5–8 PM or 9–11 PM)`);
       break;
+
     case 5: {
       const parsed = msg.text.trim().split(',').map(r => {
         const [from, to] = r.trim().split('-').map(Number);
@@ -381,17 +376,20 @@ bot.on('message', async msg => {
       sendMsg(chatId, `✅ Time ranges set.\n\nFor how many <b>hours</b> should I keep checking? (e.g. <code>6</code>)`);
       break;
     }
+
     case 6: {
       const hours = parseInt(msg.text.trim());
       if (isNaN(hours) || hours <= 0) {
         sendMsg(chatId, `⚠️ Please enter a valid number of hours (e.g. 6)`);
         break;
       }
+
       const intervalMs = 3 * 60 * 1000;
       const endTime = Date.now() + hours * 60 * 60 * 1000;
       const rangeStr = session.ranges.map(r => `${r.from}:00–${r.to}:00`).join(', ');
 
-      await sendMsg(chatId,
+      await sendMsg(
+        chatId,
         `🎯 <b>Tracking started!</b>\n\n` +
         `🎬 Movie: <b>${session.movie}</b>\n` +
         `🏛️ Theatre: <b>${session.theatre}</b>, ${session.city}\n` +
@@ -405,7 +403,9 @@ bot.on('message', async msg => {
       if (sessions[chatId]) {
         session.interval = setInterval(async () => {
           if (Date.now() > endTime) {
-            await sendMsg(chatId, `⏰ Time's up! No matching shows found for <b>${session.movie}</b>.\n\nUse /start to set a new alert.`);
+            await sendMsg(chatId,
+              `⏰ Time's up! No matching shows found for <b>${session.movie}</b>.\n\nUse /start to set a new alert.`
+            );
             clearInterval(session.interval);
             delete sessions[chatId];
           } else {
@@ -413,6 +413,7 @@ bot.on('message', async msg => {
           }
         }, intervalMs);
       }
+
       session.step = 7;
       break;
     }
@@ -420,7 +421,9 @@ bot.on('message', async msg => {
 });
 
 // ===== Keep Render awake =====
-setInterval(() => { axios.get(HOST_URL).catch(() => {}); }, 5 * 60 * 1000);
+setInterval(() => {
+  axios.get(HOST_URL).catch(() => {});
+}, 5 * 60 * 1000);
 
 // ===== Start =====
 app.listen(PORT, () => {
