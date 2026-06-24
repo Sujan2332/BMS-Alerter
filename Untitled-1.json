@@ -1,0 +1,554 @@
+{
+    "ShowDetails": [
+        {
+            "Date": "20260408",
+            "BMSOffers": null,
+            "Event": [
+                {
+                    "EventTitle": "Race Gurram ",
+                    "EventDuration": "",
+                    "ChildEvents": [
+                        {
+                            "Event_strIsDefault": "Y",
+                            "EventSyn": "",
+                            "EventRAT": "0",
+                            "EventSEQ": "50",
+                            "EventTrailer": "https://www.youtube.com/watch?v=SE2RSqzDEmY",
+                            "EventName": "Race Gurram - Telugu",
+                            "EventGenre": {
+                                "Action": [],
+                                "Drama": [],
+                                "GenreMeta": []
+                            },
+                            "ApplicableTimeFilters": [
+                                "tf1",
+                                "tf2"
+                            ],
+                            "EventCensor": "UA",
+                            "EventGroup": "EG00011500",
+                            "EventCode": "ET00017848",
+                            "EventImageCode": "race-gurram-et00017848-17-11-2020-11-36-12",
+                            "EventDimension": "2D",
+                            "ShowTimes": [
+                                {
+                                    "ShowDateTime": "202604080615",
+                                    "CategoryRange": "",
+                                    "Attributes": "RGB LASER 4K ATMOS",
+                                    "ApplicableTimeFilters": [
+                                        "tf1"
+                                    ],
+                                    "MinPrice": "150.00",
+                                    "UpdatedMinPrice": null,
+                                    "SessionCopQuota": "0",
+                                    "SessionCodFlag": "N",
+                                    "CutOffDateTime": "202604080600",
+                                    "ChildSeats": "N",
+                                    "BestAvailableSeats": 0,
+                                    "CutOffFlag": "1",
+                                    "SessionCodQuota": "0",
+                                    "SessionId": "945",
+                                    "BestBuy": "",
+                                    "SessionCopFlag": "N",
+                                    "AvailStatus": "0",
+                                    "ShowTime": "06:15 AM",
+                                    "SessionPopUpDesc": "",
+                                    "Categories": [
+                                        {
+                                            "PriceCode": "0001",
+                                            "AdditionalData": "",
+                                            "CurPrice": "200.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000002",
+                                            "AvailStatus": "0",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "BOX A",
+                                            "CategoryRange": ""
+                                        },
+                                        {
+                                            "PriceCode": "0003",
+                                            "AdditionalData": "",
+                                            "CurPrice": "200.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000004",
+                                            "AvailStatus": "0",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "GOLD",
+                                            "CategoryRange": ""
+                                        },
+                                        {
+                                            "PriceCode": "0004",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000005",
+                                            "AvailStatus": "0",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "SILVER",
+                                            "CategoryRange": ""
+                                        }
+                                    ],
+                                    "ShowDateCode": "20260408",
+                                    "SessionUnpaidFlag": "N",
+                                    "CoupleSeats": "N",
+                                    "SessionUnpaidQuota": "0",
+                                    "IsAtmosEnabled": "N",
+                                    "MaxPrice": "200.00",
+                                    "UpdatedMaxPrice": null,
+                                    "Offers": null,
+                                    "ApplicablePriceFilters": [
+                                        "pf2"
+                                    ],
+                                    "ShowTimeCode": "0615",
+                                    "SessionSubTitle": "",
+                                    "SessionSubTitleAcronym": "",
+                                    "ScreenName": "SANDHYA"
+                                },
+                                {
+                                    "ShowDateTime": "202604081000",
+                                    "CategoryRange": "",
+                                    "Attributes": "RGB LASER 4K ATMOS",
+                                    "ApplicableTimeFilters": [
+                                        "tf1"
+                                    ],
+                                    "MinPrice": "150.00",
+                                    "UpdatedMinPrice": null,
+                                    "SessionCopQuota": "0",
+                                    "SessionCodFlag": "N",
+                                    "CutOffDateTime": "202604080945",
+                                    "ChildSeats": "N",
+                                    "BestAvailableSeats": 0,
+                                    "CutOffFlag": "1",
+                                    "SessionCodQuota": "0",
+                                    "SessionId": "946",
+                                    "BestBuy": "",
+                                    "SessionCopFlag": "N",
+                                    "AvailStatus": "0",
+                                    "ShowTime": "10:00 AM",
+                                    "SessionPopUpDesc": "",
+                                    "Categories": [
+                                        {
+                                            "PriceCode": "0001",
+                                            "AdditionalData": "",
+                                            "CurPrice": "200.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000002",
+                                            "AvailStatus": "0",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "BOX A",
+                                            "CategoryRange": ""
+                                        },
+                                        {
+                                            "PriceCode": "0003",
+                                            "AdditionalData": "",
+                                            "CurPrice": "200.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000004",
+                                            "AvailStatus": "0",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "GOLD",
+                                            "CategoryRange": ""
+                                        },
+                                        {
+                                            "PriceCode": "0004",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000005",
+                                            "AvailStatus": "0",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "SILVER",
+                                            "CategoryRange": ""
+                                        }
+                                    ],
+                                    "ShowDateCode": "20260408",
+                                    "SessionUnpaidFlag": "N",
+                                    "CoupleSeats": "N",
+                                    "SessionUnpaidQuota": "0",
+                                    "IsAtmosEnabled": "N",
+                                    "MaxPrice": "200.00",
+                                    "UpdatedMaxPrice": null,
+                                    "Offers": null,
+                                    "ApplicablePriceFilters": [
+                                        "pf2"
+                                    ],
+                                    "ShowTimeCode": "1000",
+                                    "SessionSubTitle": "",
+                                    "SessionSubTitleAcronym": "",
+                                    "ScreenName": "SANDHYA"
+                                },
+                                {
+                                    "ShowDateTime": "202604081300",
+                                    "CategoryRange": "1|2|3|4|5|6|7|8|9|10",
+                                    "Attributes": "RGB LASER 4K ATMOS",
+                                    "ApplicableTimeFilters": [
+                                        "tf2"
+                                    ],
+                                    "MinPrice": "150.00",
+                                    "UpdatedMinPrice": null,
+                                    "SessionCopQuota": "0",
+                                    "SessionCodFlag": "N",
+                                    "CutOffDateTime": "202604081245",
+                                    "ChildSeats": "N",
+                                    "BestAvailableSeats": 0,
+                                    "CutOffFlag": "1",
+                                    "SessionCodQuota": "0",
+                                    "SessionId": "948",
+                                    "BestBuy": "",
+                                    "SessionCopFlag": "N",
+                                    "AvailStatus": "3",
+                                    "ShowTime": "01:00 PM",
+                                    "SessionPopUpDesc": "",
+                                    "Categories": [
+                                        {
+                                            "PriceCode": "0001",
+                                            "AdditionalData": "",
+                                            "CurPrice": "200.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000002",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "BOX A",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        },
+                                        {
+                                            "PriceCode": "0003",
+                                            "AdditionalData": "",
+                                            "CurPrice": "200.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000004",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "GOLD",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        },
+                                        {
+                                            "PriceCode": "0004",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000005",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "SILVER",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        }
+                                    ],
+                                    "ShowDateCode": "20260408",
+                                    "SessionUnpaidFlag": "N",
+                                    "CoupleSeats": "N",
+                                    "SessionUnpaidQuota": "0",
+                                    "IsAtmosEnabled": "N",
+                                    "MaxPrice": "200.00",
+                                    "UpdatedMaxPrice": null,
+                                    "Offers": null,
+                                    "ApplicablePriceFilters": [
+                                        "pf2"
+                                    ],
+                                    "ShowTimeCode": "1300",
+                                    "SessionSubTitle": "",
+                                    "SessionSubTitleAcronym": "",
+                                    "ScreenName": "SANDHYA"
+                                }
+                            ],
+                            "IsMovieClubEnabled": "N",
+                            "EventIsAtmosEnabled": "N",
+                            "Event_strPopUpDesc": "",
+                            "EventLanguage": "Telugu",
+                            "EventUrl": "race-gurram",
+                            "ApplicablePriceFilters": [
+                                "pf2"
+                            ]
+                        }
+                    ],
+                    "EventSynopsis": "",
+                    "EventGenre": "",
+                    "ApplicablePriceFilters": [
+                        "pf2"
+                    ],
+                    "ApplicableTimeFilters": [
+                        "tf1",
+                        "tf2"
+                    ],
+                    "EventCensor": "",
+                    "EventGroup": "EG00011500"
+                },
+                {
+                    "EventTitle": "Raakaasa",
+                    "EventDuration": "",
+                    "ChildEvents": [
+                        {
+                            "Event_strIsDefault": "Y",
+                            "EventSyn": "",
+                            "EventRAT": "0",
+                            "EventSEQ": "50",
+                            "EventTrailer": "https://www.youtube.com/watch?v=MeGrHazybIY",
+                            "EventName": "Raakaasa - Telugu",
+                            "EventGenre": {
+                                "Comedy": [],
+                                "Fantasy": [],
+                                "GenreMeta": [],
+                                "Thriller": []
+                            },
+                            "ApplicableTimeFilters": [
+                                "tf3",
+                                "tf4"
+                            ],
+                            "EventCensor": "UA13+",
+                            "EventGroup": "EG00489659",
+                            "EventCode": "ET00492361",
+                            "EventImageCode": "rakasa-et00492361-1774247640",
+                            "EventDimension": "2D",
+                            "ShowTimes": [
+                                {
+                                    "ShowDateTime": "202604081600",
+                                    "CategoryRange": "1|2|3|4|5|6|7|8|9|10",
+                                    "Attributes": "RGB LASER 4K ATMOS",
+                                    "ApplicableTimeFilters": [
+                                        "tf3"
+                                    ],
+                                    "MinPrice": "120.00",
+                                    "UpdatedMinPrice": null,
+                                    "SessionCopQuota": "0",
+                                    "SessionCodFlag": "N",
+                                    "CutOffDateTime": "202604081545",
+                                    "ChildSeats": "N",
+                                    "BestAvailableSeats": 0,
+                                    "CutOffFlag": "1",
+                                    "SessionCodQuota": "0",
+                                    "SessionId": "949",
+                                    "BestBuy": "",
+                                    "SessionCopFlag": "N",
+                                    "AvailStatus": "3",
+                                    "ShowTime": "04:00 PM",
+                                    "SessionPopUpDesc": "",
+                                    "Categories": [
+                                        {
+                                            "PriceCode": "0001",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000002",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "BOX A",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        },
+                                        {
+                                            "PriceCode": "0003",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000004",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "GOLD",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        },
+                                        {
+                                            "PriceCode": "0004",
+                                            "AdditionalData": "",
+                                            "CurPrice": "120.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000005",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "SILVER",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        }
+                                    ],
+                                    "ShowDateCode": "20260408",
+                                    "SessionUnpaidFlag": "N",
+                                    "CoupleSeats": "N",
+                                    "SessionUnpaidQuota": "0",
+                                    "IsAtmosEnabled": "N",
+                                    "MaxPrice": "150.00",
+                                    "UpdatedMaxPrice": null,
+                                    "Offers": null,
+                                    "ApplicablePriceFilters": [
+                                        "pf2"
+                                    ],
+                                    "ShowTimeCode": "1600",
+                                    "SessionSubTitle": "",
+                                    "SessionSubTitleAcronym": "",
+                                    "ScreenName": "SANDHYA"
+                                },
+                                {
+                                    "ShowDateTime": "202604082210",
+                                    "CategoryRange": "1|2|3|4|5|6|7|8|9|10",
+                                    "Attributes": "RGB LASER 4K ATMOS",
+                                    "ApplicableTimeFilters": [
+                                        "tf4"
+                                    ],
+                                    "MinPrice": "120.00",
+                                    "UpdatedMinPrice": null,
+                                    "SessionCopQuota": "0",
+                                    "SessionCodFlag": "N",
+                                    "CutOffDateTime": "202604082155",
+                                    "ChildSeats": "N",
+                                    "BestAvailableSeats": 0,
+                                    "CutOffFlag": "1",
+                                    "SessionCodQuota": "0",
+                                    "SessionId": "950",
+                                    "BestBuy": "",
+                                    "SessionCopFlag": "N",
+                                    "AvailStatus": "3",
+                                    "ShowTime": "10:10 PM",
+                                    "SessionPopUpDesc": "",
+                                    "Categories": [
+                                        {
+                                            "PriceCode": "0001",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000002",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "BOX A",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        },
+                                        {
+                                            "PriceCode": "0003",
+                                            "AdditionalData": "",
+                                            "CurPrice": "150.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000004",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "GOLD",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        },
+                                        {
+                                            "PriceCode": "0004",
+                                            "AdditionalData": "",
+                                            "CurPrice": "120.00",
+                                            "UpdatedPrice": null,
+                                            "AreaCatCode": "0000000005",
+                                            "AvailStatus": "3",
+                                            "BestAvailableSeats": "0",
+                                            "SeatLayout": "Y",
+                                            "PriceDesc": "SILVER",
+                                            "CategoryRange": "1|2|3|4|5|6|7|8|9|10"
+                                        }
+                                    ],
+                                    "ShowDateCode": "20260408",
+                                    "SessionUnpaidFlag": "N",
+                                    "CoupleSeats": "N",
+                                    "SessionUnpaidQuota": "0",
+                                    "IsAtmosEnabled": "N",
+                                    "MaxPrice": "150.00",
+                                    "UpdatedMaxPrice": null,
+                                    "Offers": null,
+                                    "ApplicablePriceFilters": [
+                                        "pf2"
+                                    ],
+                                    "ShowTimeCode": "2210",
+                                    "SessionSubTitle": "",
+                                    "SessionSubTitleAcronym": "",
+                                    "ScreenName": "SANDHYA"
+                                }
+                            ],
+                            "IsMovieClubEnabled": "N",
+                            "EventIsAtmosEnabled": "N",
+                            "Event_strPopUpDesc": "",
+                            "EventLanguage": "Telugu",
+                            "EventUrl": "raakaasa",
+                            "ApplicablePriceFilters": [
+                                "pf2"
+                            ]
+                        }
+                    ],
+                    "EventSynopsis": "",
+                    "EventGenre": "",
+                    "ApplicablePriceFilters": [
+                        "pf2"
+                    ],
+                    "ApplicableTimeFilters": [
+                        "tf3",
+                        "tf4"
+                    ],
+                    "EventCensor": "",
+                    "EventGroup": "EG00489659"
+                }
+            ]
+        }
+    ],
+    "ShowDatesArray": [
+        {
+            "DispDate": "Today, 07 Apr",
+            "DateCode": "20260407",
+            "Day": "Tuesday",
+            "Month": "April",
+            "Date": "07",
+            "Year": "2026",
+            "isDisabled": false
+        },
+        {
+            "DispDate": "Tomorrow, 08 Apr",
+            "DateCode": "20260408",
+            "Day": "Wednesday",
+            "Month": "April",
+            "Date": "08",
+            "Year": "2026",
+            "isDisabled": false
+        },
+        {
+            "DispDate": "Friday, 10 Apr",
+            "DateCode": "20260410",
+            "Day": "Friday",
+            "Month": "April",
+            "Date": "10",
+            "Year": "2026",
+            "isDisabled": false
+        },
+        {
+            "DispDate": "Saturday, 11 Apr",
+            "DateCode": "20260411",
+            "Day": "Saturday",
+            "Month": "April",
+            "Date": "11",
+            "Year": "2026",
+            "isDisabled": false
+        },
+        {
+            "DispDate": "Sunday, 12 Apr",
+            "DateCode": "20260412",
+            "Day": "Sunday",
+            "Month": "April",
+            "Date": "12",
+            "Year": "2026",
+            "isDisabled": false
+        },
+        {
+            "DispDate": "Monday, 13 Apr",
+            "DateCode": "20260413",
+            "Day": "Monday",
+            "Month": "April",
+            "Date": "13",
+            "Year": "2026",
+            "isDisabled": true
+        },
+        {
+            "DispDate": "Tuesday, 14 Apr",
+            "DateCode": "20260414",
+            "Day": "Tuesday",
+            "Month": "April",
+            "Date": "14",
+            "Year": "2026",
+            "isDisabled": true
+        }
+    ]
+}

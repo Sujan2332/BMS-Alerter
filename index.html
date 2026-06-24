@@ -1,0 +1,30 @@
+<form id="searchForm">
+  <input name="movie" placeholder="Movie Name" required />
+  <input name="theatre" placeholder="Theatre Name" required />
+  <input name="city" placeholder="City" required />
+  <input name="date" type="date" required />
+  <input name="showtimes" placeholder="Showtimes ranges, e.g. 17-20,21-23" required />
+  <button type="submit">Search</button>
+</form>
+
+<script>
+  const form = document.getElementById('searchForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+      movie: e.target.movie.value.trim(),
+      theatre: e.target.theatre.value.trim(),
+      city: e.target.city.value.trim(),
+      date: e.target.date.value,
+      showtimes: e.target.showtimes.value.trim()
+    };
+    // Send this data to your backend API endpoint
+    const response = await fetch('/api/check-show', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    alert(result.message);
+  });
+</script>
