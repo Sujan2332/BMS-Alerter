@@ -1,56 +1,101 @@
 require('dotenv').config();
 
-if (!process.env.PUPPETEER_CACHE_DIR) {
-  process.env.PUPPETEER_CACHE_DIR = require('path').join(__dirname, '.cache', 'puppeteer');
-}
-
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
+// ===== Chrome path — project-local cache (set via PUPPETEER_CACHE_DIR at build time) =====
+// We install Chrome into .cache/puppeteer/ during the Render build step so it
+// survives into the runtime container alongside the app code.
+process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, '.cache', 'puppeteer');
+
 const puppeteerVanilla = require('puppeteer');
 const CHROME_EXEC = puppeteerVanilla.executablePath();
+
 if (!fs.existsSync(CHROME_EXEC)) {
-  console.error('[CHROME] NOT FOUND at:', CHROME_EXEC);
+  console.error('[CHROME] Not found at:', CHROME_EXEC);
+  console.error('[CHROME] Make sure Render Build Command is:');
+  console.error('         npm install && PUPPETEER_CACHE_DIR=.cache/puppeteer npx puppeteer browsers install chrome');
+  // List what's actually in .cache so we can debug
+  const cacheDir = path.join(__dirname, '.cache');
+  if (fs.existsSync(cacheDir)) {
+    console.error('[CHROME] .cache contents:', JSON.stringify(fs.readdirSync(cacheDir)));
+    const pDir = path.join(cacheDir, 'puppeteer');
+    if (fs.existsSync(pDir)) {
+      console.error('[CHROME] .cache/puppeteer contents:', JSON.stringify(fs.readdirSync(pDir)));
+    }
+  } else {
+    console.error('[CHROME] .cache dir does not exist — build step did not run');
+  }
   process.exit(1);
 }
 console.log('[CHROME] Found:', CHROME_EXEC);
 
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const AnonymizeUA = require('puppeteer-extra-plugin-anonymize-ua');
 puppeteer.use(StealthPlugin());
+puppeteer.use(AnonymizeUA());
 
+// ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN || '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
 const PORT = process.env.PORT || 3000;
 const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
 
-const VENUE_MAP = { 'sandhya': 'SATB', 'pvr forum mall': 'PVRF', 'inox garuda': 'GNML', 'cinepolis': 'CPFM' };
-const REGION_MAP = { 'bengaluru': 'BANG', 'bangalore': 'BANG', 'mumbai': 'MUMB', 'delhi': 'NDLS', 'hyderabad': 'HYD', 'chennai': 'CHEN', 'pune': 'PUNE' };
+// ===== Venue & Region mapping =====
+const VENUE_MAP = {
+  'sandhya': 'SATB',
+  'pvr forum mall': 'PVRF',
+  'inox garuda': 'GNML',
+  'cinepolis': 'CPFM',
+};
 
+const REGION_MAP = {
+  'bengaluru': 'BANG',
+  'bangalore': 'BANG',
+  'mumbai': 'MUMB',
+  'delhi': 'NDLS',
+  'hyderabad': 'HYD',
+  'chennai': 'CHEN',
+  'pune': 'PUNE',
+};
+
+// ===== Express =====
 const app = express();
 app.use(express.json());
 app.get('/', (req, res) => res.send('BMS Alerts Bot is running!'));
 
+// ===== Telegram webhook =====
 const bot = new TelegramBot(BOT_TOKEN);
 bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
-app.post(`/bot${BOT_TOKEN}`, (req, res) => { bot.processUpdate(req.body); res.sendStatus(200); });
+app.post(`/bot${BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
+// ===== Sessions =====
 const sessions = {};
+
+// ===== Shared browser =====
 let sharedBrowser = null;
 
 async function getBrowser() {
   if (sharedBrowser) {
-    try { await sharedBrowser.version(); return sharedBrowser; } catch { sharedBrowser = null; }
+    try { await sharedBrowser.version(); return sharedBrowser; }
+    catch { sharedBrowser = null; }
   }
   sharedBrowser = await puppeteer.launch({
     headless: true,
     executablePath: CHROME_EXEC,
     args: [
-      '--no-sandbox', '--disable-setuid-sandbox',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage', '--disable-gpu', '--single-process',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process',
     ],
     userDataDir: path.join(__dirname, 'profile'),
   });
@@ -58,6 +103,7 @@ async function getBrowser() {
   return sharedBrowser;
 }
 
+// ===== Helpers =====
 async function sendMsg(chatId, text) {
   try { await bot.sendMessage(chatId, text, { parse_mode: 'HTML' }); }
   catch (e) { console.error('TG error:', e.message); }
@@ -74,98 +120,58 @@ function parseShowTime(timeStr) {
 
 const SKIP_HEADERS = new Set(['host','content-length','connection','sec-fetch-site','sec-fetch-mode','sec-fetch-dest','upgrade-insecure-requests']);
 
+// ===== BMS fetch via browser =====
 async function fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug) {
   const bmsPageUrl = `https://in.bookmyshow.com/cinemas/bengaluru/sandhya-cinema-bengaluru/buytickets/${venueCode}/${dateSlug}`;
-  const apiPath = '/api/v3/mobile/showtimes/byvenue';
-  const apiParams = new URLSearchParams({
-    appCode: 'MOBAND2', appVersion: '14.3.4', language: 'en',
-    venueCode, regionCode, bmsId: '1.21.0',
-    token: '67x1xa33b4x422b361ba',
-    lat: '12.9716', lon: '77.5946', dateCode: dateSlug,
-  });
-  const fullApiUrl = `https://in.bookmyshow.com${apiPath}?${apiParams}`;
+  const apiPattern = '/api/v3/mobile/showtimes/byvenue';
 
   const browser = await getBrowser();
   const page = await browser.newPage();
-  let intercepted = null;
+  let captured = null;
 
   try {
-    await page.setViewport({ width: 1366, height: 768 });
     await page.setExtraHTTPHeaders({ 'accept-language': 'en-IN,en;q=0.9' });
+    await page.setViewport({ width: 1366, height: 768 });
     await page.setRequestInterception(true);
 
     page.on('request', req => {
       const url = req.url();
-      if (url.includes(apiPath) && !intercepted) {
-        intercepted = {
-          params: Object.fromEntries(new URL(url).searchParams.entries()),
+      if (url.includes(apiPattern) && !captured) {
+        const parsed = new URL(url);
+        captured = {
+          params: Object.fromEntries(parsed.searchParams.entries()),
           headers: Object.fromEntries(Object.entries(req.headers()).filter(([k]) => !SKIP_HEADERS.has(k.toLowerCase()))),
         };
-        console.log('[BROWSER] API intercepted from page');
+        console.log('[BROWSER] API intercepted');
       }
-      ['image', 'font', 'media'].includes(req.resourceType()) ? req.abort() : req.continue();
+      ['image','font','media'].includes(req.resourceType()) ? req.abort() : req.continue();
     });
 
-    // Step 1: Load BMS homepage first to get CF clearance cookie
-    console.log('[BROWSER] Loading BMS homepage for CF clearance...');
-    await page.goto('https://in.bookmyshow.com/', { waitUntil: 'networkidle2', timeout: 60000 });
-    console.log('[BROWSER] Homepage loaded');
+    console.log('[BROWSER] Loading:', bmsPageUrl);
+    await page.goto(bmsPageUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    // Step 2: Navigate to the cinema page
-    console.log('[BROWSER] Navigating to cinema page...');
-    await page.goto(bmsPageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-    console.log('[BROWSER] Cinema page loaded');
+    const deadline = Date.now() + 12000;
+    while (!captured && Date.now() < deadline) await new Promise(r => setTimeout(r, 400));
 
-    // Wait a bit more for any delayed API calls
-    await new Promise(r => setTimeout(r, 3000));
+    if (!captured) throw new Error('BMS API call not intercepted — Cloudflare may have blocked page load');
 
-    // Step 3: If we intercepted the API call, replay it with live headers
-    if (intercepted) {
-      console.log('[BROWSER] Replaying intercepted API call...');
-      intercepted.params.venueCode = venueCode;
-      intercepted.params.regionCode = regionCode;
-      intercepted.params.dateCode = dateSlug;
-      const res = await axios.get(`https://in.bookmyshow.com${apiPath}`, {
-        params: intercepted.params,
-        headers: intercepted.headers,
-        timeout: 20000,
-      });
-      return res.data;
-    }
+    captured.params.venueCode = venueCode;
+    captured.params.regionCode = regionCode;
+    captured.params.dateCode = dateSlug;
 
-    // Step 4: No interception — call the API directly from inside the browser
-    // (the page already has CF cookies set, so fetch() from page context works)
-    console.log('[BROWSER] No interception, trying in-page fetch...');
-    const result = await page.evaluate(async (url) => {
-      try {
-        const res = await fetch(url, {
-          credentials: 'include',
-          headers: {
-            'accept': 'application/json',
-            'accept-language': 'en-IN,en;q=0.9',
-            'x-region-code': 'BANG',
-            'x-subregion-code': 'BANG',
-          },
-        });
-        if (!res.ok) return { ok: false, status: res.status };
-        return { ok: true, data: await res.json() };
-      } catch (e) {
-        return { ok: false, error: e.message };
-      }
-    }, fullApiUrl);
-
-    if (result.ok) {
-      console.log('[BROWSER] In-page fetch succeeded');
-      return result.data;
-    }
-
-    throw new Error(`In-page fetch failed: status=${result.status} error=${result.error}`);
+    const res = await axios.get('https://in.bookmyshow.com' + apiPattern, {
+      params: captured.params,
+      headers: captured.headers,
+      timeout: 20000,
+    });
+    return res.data;
 
   } finally {
     await page.close().catch(() => {});
   }
 }
 
+// ===== Check show =====
 async function checkShowForUser(chatId) {
   const session = sessions[chatId];
   if (!session) return;
@@ -180,10 +186,12 @@ async function checkShowForUser(chatId) {
     console.log(`[CHECK] movie="${movie}" venue="${venueCode}" region="${regionCode}" date="${dateSlug}"`);
     const data = await fetchShowtimesViaBrowser(venueCode, regionCode, dateSlug);
     const showDetails = data?.ShowDetails || [];
+
     if (!showDetails.length) { console.log('[CHECK] No ShowDetails yet'); return; }
 
     let movieFound = false;
     const matchedTimes = [], availableTimes = [];
+
     for (const showDay of showDetails) {
       for (const event of (showDay?.Event || [])) {
         const title = (event?.EventTitle || '').trim();
@@ -191,10 +199,11 @@ async function checkShowForUser(chatId) {
         movieFound = true;
         for (const child of (event?.ChildEvents || [])) {
           for (const st of (child?.ShowTimes || [])) {
-            const hour = parseShowTime(st?.ShowTime || '');
+            const timeStr = st?.ShowTime || '';
+            const hour = parseShowTime(timeStr);
             if (hour === null) continue;
-            availableTimes.push(st.ShowTime);
-            if (ranges.some(({ from, to }) => hour >= from && hour <= to)) matchedTimes.push(st.ShowTime);
+            availableTimes.push(timeStr);
+            if (ranges.some(({ from, to }) => hour >= from && hour <= to)) matchedTimes.push(timeStr);
           }
         }
       }
@@ -213,17 +222,21 @@ async function checkShowForUser(chatId) {
       delete sessions[chatId];
     } else if (movieFound && availableTimes.length) {
       console.log(`[CHECK] Not in range. Available: ${availableTimes.join(', ')}`);
+    } else if (movieFound) {
+      console.log('[CHECK] Movie found, no showtimes yet');
     } else {
       console.log(`[CHECK] "${movie}" not listed yet at "${venueCode}"`);
     }
   } catch (err) {
     console.error('[CHECK] Error:', err.message);
+    if (err.response) console.error('  Status:', err.response.status, JSON.stringify(err.response.data).slice(0, 200));
   }
 }
 
+// ===== Bot flow =====
 bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
-  sessions[chatId] = { step: 1 };
+  sessions[chatId] = { step: 1, firstName: msg.from?.first_name || 'Friend' };
   sendMsg(chatId, `🎬 <b>Welcome to BookMyShow Alerts!</b>\n\nWhich <b>movie</b> would you like to track?`);
 });
 
@@ -231,19 +244,36 @@ bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const session = sessions[chatId];
   if (!session || !msg.text || msg.text.startsWith('/')) return;
+
   switch (session.step) {
-    case 1: session.movie = msg.text.trim(); session.step = 2; sendMsg(chatId, `✅ Movie: <code>${session.movie}</code>\n\nWhich <b>city</b>?`); break;
-    case 2: session.city = msg.text.trim(); session.step = 3; sendMsg(chatId, `✅ City: <code>${session.city}</code>\n\nWhich <b>theatre</b>?`); break;
-    case 3: session.theatre = msg.text.trim(); session.step = 4; sendMsg(chatId, `✅ Theatre: <code>${session.theatre}</code>\n\nWhat <b>date</b>? (YYYY-MM-DD)`); break;
+    case 1:
+      session.movie = msg.text.trim(); session.step = 2;
+      sendMsg(chatId, `✅ Movie: <code>${session.movie}</code>\n\nWhich <b>city</b>? (e.g. Bengaluru)`);
+      break;
+    case 2:
+      session.city = msg.text.trim(); session.step = 3;
+      sendMsg(chatId, `✅ City: <code>${session.city}</code>\n\nWhich <b>theatre</b>? (e.g. Sandhya)`);
+      break;
+    case 3:
+      session.theatre = msg.text.trim(); session.step = 4;
+      sendMsg(chatId, `✅ Theatre: <code>${session.theatre}</code>\n\nWhat <b>date</b>? (YYYY-MM-DD)`);
+      break;
     case 4:
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(msg.text.trim())) { sendMsg(chatId, `⚠️ Use YYYY-MM-DD format`); break; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(msg.text.trim())) {
+        sendMsg(chatId, `⚠️ Use YYYY-MM-DD format (e.g. 2026-07-15)`); break;
+      }
       session.date = msg.text.trim(); session.step = 5;
-      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nTime ranges? (e.g. <code>17-20,21-23</code>)`); break;
+      sendMsg(chatId, `✅ Date: <code>${session.date}</code>\n\nTime ranges? (e.g. <code>17-20,21-23</code>)`);
+      break;
     case 5: {
-      const parsed = msg.text.trim().split(',').map(r => { const [a,b] = r.trim().split('-').map(Number); return {from:a,to:isNaN(b)?a:b}; });
+      const parsed = msg.text.trim().split(',').map(r => {
+        const [from, to] = r.trim().split('-').map(Number);
+        return { from, to: isNaN(to) ? from : to };
+      });
       if (parsed.some(r => isNaN(r.from))) { sendMsg(chatId, `⚠️ Try: <code>17-20,21-23</code>`); break; }
       session.ranges = parsed; session.step = 6;
-      sendMsg(chatId, `✅ Ranges set.\n\nFor how many <b>hours</b>? (e.g. <code>6</code>)`); break;
+      sendMsg(chatId, `✅ Time ranges set.\n\nFor how many <b>hours</b> should I check? (e.g. <code>6</code>)`);
+      break;
     }
     case 6: {
       const hours = parseInt(msg.text.trim());
@@ -258,12 +288,15 @@ bot.on('message', async msg => {
       if (sessions[chatId]) {
         session.interval = setInterval(async () => {
           if (Date.now() > endTime) {
-            await sendMsg(chatId, `⏰ Time's up! No shows found. Use /start to try again.`);
+            await sendMsg(chatId, `⏰ Time's up! No shows found for <b>${session.movie}</b>. Use /start to try again.`);
             clearInterval(session.interval); delete sessions[chatId];
-          } else { await checkShowForUser(chatId); }
+          } else {
+            await checkShowForUser(chatId);
+          }
         }, 3 * 60 * 1000);
       }
-      session.step = 7; break;
+      session.step = 7;
+      break;
     }
   }
 });
