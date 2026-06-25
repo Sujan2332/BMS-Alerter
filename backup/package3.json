@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "build": "PUPPETEER_CACHE_DIR=.cache/puppeteer npx puppeteer browsers install chrome"
+    "start": "node install-chrome.js && node index.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "axios": "^1.18.1",
