@@ -84,7 +84,3 @@ npm start
 - Only tested for BookMyShow's Indian site (`in.bookmyshow.com`). Venue and region codes for a handful of cities/theatres are hardcoded in `index.js` (`VENUE_MAP`, `REGION_MAP`) — theatres outside that list are guessed from their name and may not resolve correctly.
 - Relies on scraping/replaying BookMyShow's internal API, so it may break if BookMyShow changes its site or adds stronger bot protection.
 - This project is for personal/educational use. Automated scraping of BookMyShow may be against their Terms of Service — use at your own discretion.
-
-## License
-
-No license specified yet — add one (e.g. MIT) if you plan to share or accept contributions.
