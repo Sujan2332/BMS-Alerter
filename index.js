@@ -27,7 +27,7 @@ if (!BOT_TOKEN) {
   throw new Error('BOT_TOKEN is not set. Please configure it in the environment or .env file.');
 }
 const PORT = process.env.PORT || 3000;
-const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
+const HOST_URL = (process.env.RENDER_EXTERNAL_URL || process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/bot';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || `${HOST_URL}${WEBHOOK_PATH}`;
 
@@ -64,6 +64,7 @@ async function setupWebhook() {
 }
 
 app.post(`${WEBHOOK_PATH}${BOT_TOKEN}`, (req, res) => {
+  console.log('[WEBHOOK] Received update', req.body?.message?.chat?.id || 'unknown');
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
