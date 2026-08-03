@@ -300,7 +300,7 @@ bot.on('polling_error', err => {
 // const TelegramBot = require('node-telegram-bot-api');
 
 // // ===== CONFIG =====
-// const BOT_TOKEN = '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
+// const BOT_TOKEN = process.env.BOT_TOKEN;
 // const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // let SESSION = {
@@ -534,7 +534,7 @@ bot.on('polling_error', err => {
 // puppeteer.use(StealthPlugin());
 
 // // ===== CONFIG =====
-// const BOT_TOKEN = '8685438592:AAG-6incTzVBB85eXgu9KNT2t06m3dxlaUY';
+// const BOT_TOKEN = process.env.BOT_TOKEN;
 // const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // // ===== User sessions =====
