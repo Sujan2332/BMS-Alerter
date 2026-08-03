@@ -28,6 +28,20 @@ if (!BOT_TOKEN) {
 }
 const PORT = process.env.PORT || 3000;
 const HOST_URL = (process.env.HOST_URL || 'https://bms-alerter.onrender.com').replace(/\/$/, '');
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/bot';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || `${HOST_URL}${WEBHOOK_PATH}`;
+
+// Optional webhook settings. Add these in Render/your .env if you want to override defaults.
+// WEBHOOK_PATH should usually be '/bot'
+// WEBHOOK_URL should usually be your public Render URL, for example https://your-app.onrender.com/bot
+
+const defaultCacheDir = path.join(__dirname, '.cache', 'puppeteer');
+const envCacheDir = process.env.PUPPETEER_CACHE_DIR;
+if (!envCacheDir || (process.platform === 'win32' && envCacheDir.includes('/opt/render/'))) {
+  process.env.PUPPETEER_CACHE_DIR = defaultCacheDir;
+} else {
+  process.env.PUPPETEER_CACHE_DIR = envCacheDir;
+}
 
 const VENUE_MAP = { 'sandhya': 'SATB', 'pvr forum mall': 'PVRF', 'inox garuda': 'GNML', 'cinepolis': 'CPFM' };
 const REGION_MAP = { 'bengaluru': 'BANG', 'bangalore': 'BANG', 'mumbai': 'MUMB', 'delhi': 'NDLS', 'hyderabad': 'HYD', 'chennai': 'CHEN', 'pune': 'PUNE' };
@@ -36,9 +50,25 @@ const app = express();
 app.use(express.json());
 app.get('/', (req, res) => res.send('BMS Alerts Bot is running!'));
 
-const bot = new TelegramBot(BOT_TOKEN);
-bot.setWebHook(`${HOST_URL}/bot${BOT_TOKEN}`);
-app.post(`/bot${BOT_TOKEN}`, (req, res) => { bot.processUpdate(req.body); res.sendStatus(200); });
+const bot = new TelegramBot(BOT_TOKEN, { polling: false });
+
+async function setupWebhook() {
+  try {
+    await bot.setWebHook(`${WEBHOOK_URL}${BOT_TOKEN}`);
+    console.log(`✅ Webhook set to ${WEBHOOK_URL}${BOT_TOKEN}`);
+  } catch (err) {
+    console.error('Webhook setup failed:', err.message);
+    console.log('Falling back to polling mode');
+    await bot.startPolling();
+  }
+}
+
+app.post(`${WEBHOOK_PATH}${BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+setupWebhook().catch(err => console.error('Setup error:', err.message));
 
 const sessions = {};
 let sharedBrowser = null;
