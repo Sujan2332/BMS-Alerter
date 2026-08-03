@@ -64,7 +64,7 @@ async function setupWebhook() {
 }
 
 app.post(`${WEBHOOK_PATH}${BOT_TOKEN}`, (req, res) => {
-  console.log('[WEBHOOK] Received update', req.body?.message?.chat?.id || 'unknown');
+  // console.log('[WEBHOOK] Received update', req.body?.message?.chat?.id || 'unknown');
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
